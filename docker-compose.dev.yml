@@ -1,0 +1,15 @@
+services:
+  api:
+    command: uvicorn src.api.app:create_app --factory --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
+      - /app/.venv
+    environment:
+      - ENVIRONMENT=development
+
+  worker:
+    volumes:
+      - .:/app
+      - /app/.venv
+    environment:
+      - ENVIRONMENT=development
