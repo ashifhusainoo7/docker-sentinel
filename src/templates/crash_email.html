@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .header { background: #dc2626; color: white; padding: 20px 24px; }
+        .header h1 { margin: 0; font-size: 20px; }
+        .body { padding: 24px; }
+        .field { margin-bottom: 16px; }
+        .label { font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; margin-bottom: 4px; }
+        .value { font-size: 14px; color: #111827; }
+        .severity { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+        .severity-critical { background: #fef2f2; color: #dc2626; }
+        .severity-high { background: #fff7ed; color: #ea580c; }
+        .severity-medium { background: #fefce8; color: #ca8a04; }
+        .severity-low { background: #f0fdf4; color: #16a34a; }
+        .logs { background: #1f2937; color: #e5e7eb; padding: 16px; border-radius: 6px; font-family: monospace; font-size: 12px; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+        .suggestions { padding-left: 20px; }
+        .suggestions li { margin-bottom: 8px; color: #374151; }
+        .footer { padding: 16px 24px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center; }
+        .footer a { color: #2563eb; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Container Crash: {{ event.container_name }}</h1>
+        </div>
+        <div class="body">
+            <div class="field">
+                <div class="label">Container</div>
+                <div class="value">{{ event.container_name }} ({{ event.container_id[:12] }})</div>
+            </div>
+            <div class="field">
+                <div class="label">Image</div>
+                <div class="value">{{ event.image }}</div>
+            </div>
+            <div class="field">
+                <div class="label">Exit Code</div>
+                <div class="value">{{ event.exit_code }}</div>
+            </div>
+            <div class="field">
+                <div class="label">Severity</div>
+                <div class="value"><span class="severity severity-{{ analysis.severity }}">{{ analysis.severity | upper }}</span></div>
+            </div>
+            <div class="field">
+                <div class="label">Root Cause</div>
+                <div class="value">{{ analysis.root_cause }}</div>
+            </div>
+            <div class="field">
+                <div class="label">Category</div>
+                <div class="value">{{ analysis.category }}</div>
+            </div>
+            {% if analysis.suggestions %}
+            <div class="field">
+                <div class="label">Suggested Fixes</div>
+                <ol class="suggestions">
+                    {% for suggestion in analysis.suggestions %}
+                    <li>{{ suggestion }}</li>
+                    {% endfor %}
+                </ol>
+            </div>
+            {% endif %}
+            {% if summary %}
+            <div class="field">
+                <div class="label">AI Summary</div>
+                <div class="value">{{ summary }}</div>
+            </div>
+            {% endif %}
+            {% if event.logs %}
+            <div class="field">
+                <div class="label">Last Log Lines</div>
+                <div class="logs">{{ event.logs }}</div>
+            </div>
+            {% endif %}
+        </div>
+        <div class="footer">
+            <a href="{{ dashboard_url }}">View in Dashboard</a>
+        </div>
+    </div>
+</body>
+</html>
