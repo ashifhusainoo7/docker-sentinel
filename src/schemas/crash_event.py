@@ -30,6 +30,8 @@ class CrashEventCreate(BaseModel):
     image: str
     exit_code: int | None = None
     logs: str | None = None
+    event_type: str | None = None
+    event_timestamp: datetime | None = None
 
 
 class CrashEventResponse(BaseModel):
