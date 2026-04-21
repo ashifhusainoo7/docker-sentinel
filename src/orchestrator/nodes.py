@@ -1,25 +1,89 @@
+import asyncio
+import logging
+import uuid
+
+import docker
+import docker.errors
+from sqlalchemy import func, update
+
+from src.listener._tls import build_tls_config
+from src.models.crash_event import CrashEvent
+from src.models.docker_host import DockerHost
 from src.orchestrator.state import CrashState
+from src.services.database import async_session_factory
+
+logger = logging.getLogger("sentinel.orchestrator")
 
 
 async def analyze_crash(state: CrashState) -> dict:
-    """Node: Run Fix Agent to analyze the crash.
+    """Node: stub until Fix Agent lands in Phase 2.
 
-    Checks Qdrant cache first, then calls LLM if needed.
+    Returns a canned CrashAnalysis dict so the state machine stays live.
+    Sets restart_likely_fixes=True to route through attempt_restart → log_event.
     """
-    raise NotImplementedError(
-        "analyze_crash node not yet implemented. "
-        "Will instantiate FixAgent, call analyze(crash_event), "
-        "and return updated state with analysis results."
-    )
+    return {
+        "analysis": {
+            "restart_likely_fixes": True,
+            "root_cause": "Pending Fix Agent implementation (Phase 2)",
+            "severity": "medium",
+            "category": "unknown",
+            "suggestions": [
+                "Fix Agent not yet implemented — placeholder analysis"
+            ],
+            "confidence": 0.0,
+        },
+        "cache_hit": False,
+    }
 
 
 async def attempt_restart(state: CrashState) -> dict:
-    """Node: Attempt to restart the crashed container."""
-    raise NotImplementedError(
-        "attempt_restart node not yet implemented. "
-        "Will use Docker SDK to restart the container, "
-        "verify it's running, and update state."
-    )
+    """Node: attempt container restart on its Docker host.
+
+    Stateless — builds a fresh Docker client per invocation.
+    """
+    host_id = uuid.UUID(state["docker_host_id"])
+    container_id = state["crash_event"]["container_id"]
+
+    async with async_session_factory() as session:
+        host = await session.get(DockerHost, host_id)
+
+    if host is None:
+        logger.warning("Docker host %s not found; cannot restart", host_id)
+        return {"restart_attempted": False, "restart_success": None}
+
+    if host.connection_mode != "tcp" or not host.tcp_url:
+        logger.warning(
+            "Host %s is not TCP-mode (mode=%s); skipping restart",
+            host_id,
+            host.connection_mode,
+        )
+        return {"restart_attempted": False, "restart_success": None}
+
+    tls_config = build_tls_config(host)
+
+    def _do_restart() -> bool:
+        client = docker.DockerClient(base_url=host.tcp_url, tls=tls_config)
+        try:
+            container = client.containers.get(container_id)
+            container.restart(timeout=10)
+            return True
+        except docker.errors.NotFound:
+            return False
+        except docker.errors.APIError:
+            logger.exception(
+                "Restart failed for container %s on host %s",
+                container_id,
+                host_id,
+            )
+            return False
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    success = await asyncio.to_thread(_do_restart)
+    return {"restart_attempted": True, "restart_success": success}
 
 
 async def notify_slack(state: CrashState) -> dict:
@@ -50,12 +114,35 @@ async def make_call(state: CrashState) -> dict:
 
 
 async def log_event(state: CrashState) -> dict:
-    """Node: Log the crash event and all actions to the database."""
-    raise NotImplementedError(
-        "log_event node not yet implemented. "
-        "Will update crash_event record in PostgreSQL with analysis results "
-        "and action flags, then update Prometheus metrics."
-    )
+    """Node: UPDATE the pending CrashEvent row with analysis + action results.
+
+    Sets resolved_at = now() unconditionally — "workflow completed",
+    not "problem fixed".
+    """
+    crash_id = uuid.UUID(state["crash_event_id"])
+    analysis = state.get("analysis") or {}
+
+    async with async_session_factory() as session:
+        await session.execute(
+            update(CrashEvent)
+            .where(CrashEvent.id == crash_id)
+            .values(
+                root_cause=analysis.get("root_cause"),
+                category=analysis.get("category"),
+                severity=analysis.get("severity"),
+                confidence=analysis.get("confidence"),
+                suggestions=analysis.get("suggestions") or [],
+                restart_attempted=state.get("restart_attempted", False),
+                restart_success=state.get("restart_success"),
+                cache_hit=state.get("cache_hit", False),
+                slack_sent=state.get("slack_sent", False),
+                email_sent=state.get("email_sent", False),
+                call_made=state.get("call_triggered", False),
+                resolved_at=func.now(),
+            )
+        )
+        await session.commit()
+    return {}
 
 
 def should_restart(state: CrashState) -> str:
@@ -67,10 +154,12 @@ def should_restart(state: CrashState) -> str:
 
 
 def check_restart_result(state: CrashState) -> str:
-    """Conditional edge: after restart, check if it succeeded."""
-    if state.get("restart_success"):
-        return "log"
-    return "notify_slack"
+    """Conditional edge: after restart, route to log.
+
+    Phase 1: all paths route to `log` because notify_slack is NotImplementedError.
+    Phase 2 will restore the `restart_success=False → notify_slack` edge.
+    """
+    return "log"
 
 
 def check_multi_crash(state: CrashState) -> str:

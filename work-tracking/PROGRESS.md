@@ -42,9 +42,9 @@ These form the end-to-end crash detection pipeline. Without these, nothing works
 | 1 | `src/listener/docker_monitor.py` | Docker event listener (connect via Docker SDK, stream die/oom/kill events) | ✅ **Done** |
 | 2 | `src/listener/manager.py` | Listener manager (sync listeners from DB, start/stop monitors) | ✅ **Done** |
 | 3 | `src/worker/main.py` | Crash event consumer (poll Redis streams, invoke LangGraph workflow) | ✅ **Done** |
-| 4 | `src/orchestrator/nodes.py` → `analyze_crash` | Fix Agent call (Qdrant cache check + LLM analysis) | **Critical** |
-| 5 | `src/orchestrator/nodes.py` → `attempt_restart` | Docker SDK restart container | **Critical** |
-| 6 | `src/orchestrator/nodes.py` → `log_event` | Persist crash event result to PostgreSQL | **Critical** |
+| 4 | `src/orchestrator/nodes.py` → `analyze_crash` | Fix Agent call (Qdrant cache check + LLM analysis) | ✅ **Stubbed** (body filled in by Phase 2 Fix Agent) |
+| 5 | `src/orchestrator/nodes.py` → `attempt_restart` | Docker SDK restart container | ✅ **Done** |
+| 6 | `src/orchestrator/nodes.py` → `log_event` | Persist crash event result to PostgreSQL | ✅ **Done** |
 
 ### Phase 2 — Agents & Notifications
 Once the pipeline works, add intelligence and alerting.
@@ -128,6 +128,26 @@ Standalone agent for customer-hosted Docker environments.
     2. `attempt_restart` next (Docker SDK `container.restart()` with status tracking). Pure Docker, no LLM.
     3. `analyze_crash` last — depends on Fix Agent (#7, Claude Haiku) and Qdrant cache (#15, #16). Either stub the LLM to return a canned `CrashAnalysis`, OR jump ahead to build Fix Agent + Qdrant first.
   - **Recommendation:** Do `log_event` + `attempt_restart` first (they complete the non-LLM parts of the state machine), then pivot to Phase 2 Fix Agent so `analyze_crash` has a real backend.
+
+### 2026-04-21 (Continued — afternoon session)
+- **Status:** ✅ **Phase 1 items #5 and #6 shipped**; #4 stubbed (Fix Agent body replaces it in Phase 2).
+- **What was done:**
+  - Brainstormed + wrote design spec: `docs/superpowers/specs/2026-04-21-orchestrator-nodes-design.md`
+  - Wrote 10-task implementation plan: `docs/superpowers/plans/2026-04-21-orchestrator-nodes.md`
+  - Extracted TLS config helper to `src/listener/_tls.py`; `ListenerManager` delegates
+  - Updated `CrashState` schema: added `crash_event_id`, `docker_host_id`; made `restart_success` nullable
+  - Updated `worker._process_event` to build the full state dict (matches the new schema)
+  - Stubbed `analyze_crash` (returns canned CrashAnalysis with `restart_likely_fixes=True` so the state machine stays live)
+  - Implemented `attempt_restart` (stateless fresh Docker client via `asyncio.to_thread`; handles `NotFound`, `APIError`, missing host)
+  - Implemented `log_event` (UPDATE pending CrashEvent row with all analysis + action fields, `resolved_at = now()`)
+  - 41 tests passing (30 baseline + 2 schema + 9 new orchestrator)
+  - Code review approved with one noted trade-off (TLS temp files — carried forward from yesterday)
+- **Pick up from here:** **Phase 2 Fix Agent (item #7)** — replace the `analyze_crash` stub body with real Claude Haiku calls. Then Qdrant cache (items #15, #16) so repeat crashes don't burn LLM tokens. After Fix Agent: notification agents (#8–11) — SlackAgent, EmailAgent, CallAgent.
+  - **Suggested sequence for next session:**
+    1. Design Fix Agent + Qdrant together (they're tightly coupled — cache check happens before LLM call).
+    2. Build Fix Agent with a stubbed Qdrant first (always miss → always call LLM). Prove end-to-end LLM invocation.
+    3. Add real Qdrant embeddings + similarity search.
+  - **Pre-work needed:** Anthropic API key in `.env` (currently has `your_anthropic_api_key` placeholder).
 
 ---
 

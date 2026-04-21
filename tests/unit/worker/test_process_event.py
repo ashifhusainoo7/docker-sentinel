@@ -59,6 +59,16 @@ async def test_process_event_invokes_langgraph_workflow(tenant_id, event_payload
         state = wf.ainvoke.await_args.args[0]
         assert state["tenant_id"] == str(tenant_id)
         assert "crash_event_id" in state
+        assert state["docker_host_id"] == event_payload["docker_host_id"]
+        assert state["crash_event"] == event_payload
+        assert state["analysis"] is None
+        assert state["cache_hit"] is False
+        assert state["restart_attempted"] is False
+        assert state["restart_success"] is None
+        assert state["slack_sent"] is False
+        assert state["email_sent"] is False
+        assert state["call_triggered"] is False
+        assert state["recent_crash_count"] == 0
 
 
 @pytest.mark.asyncio
