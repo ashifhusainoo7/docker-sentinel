@@ -2,15 +2,24 @@ from src.orchestrator.state import CrashState
 
 
 async def analyze_crash(state: CrashState) -> dict:
-    """Node: Run Fix Agent to analyze the crash.
+    """Node: stub until Fix Agent lands in Phase 2.
 
-    Checks Qdrant cache first, then calls LLM if needed.
+    Returns a canned CrashAnalysis dict so the state machine stays live.
+    Sets restart_likely_fixes=True to route through attempt_restart → log_event.
     """
-    raise NotImplementedError(
-        "analyze_crash node not yet implemented. "
-        "Will instantiate FixAgent, call analyze(crash_event), "
-        "and return updated state with analysis results."
-    )
+    return {
+        "analysis": {
+            "restart_likely_fixes": True,
+            "root_cause": "Pending Fix Agent implementation (Phase 2)",
+            "severity": "medium",
+            "category": "unknown",
+            "suggestions": [
+                "Fix Agent not yet implemented — placeholder analysis"
+            ],
+            "confidence": 0.0,
+        },
+        "cache_hit": False,
+    }
 
 
 async def attempt_restart(state: CrashState) -> dict:
