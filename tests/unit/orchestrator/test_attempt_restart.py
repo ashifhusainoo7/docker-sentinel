@@ -74,7 +74,7 @@ async def test_attempt_restart_host_missing(initial_state):
 
         result = await attempt_restart(initial_state)
 
-    assert result == {"restart_attempted": True, "restart_success": False}
+    assert result == {"restart_attempted": False, "restart_success": None}
     client_ctor.assert_not_called()
 
 

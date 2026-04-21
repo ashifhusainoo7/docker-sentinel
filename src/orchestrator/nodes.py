@@ -49,7 +49,7 @@ async def attempt_restart(state: CrashState) -> dict:
 
     if host is None:
         logger.warning("Docker host %s not found; cannot restart", host_id)
-        return {"restart_attempted": True, "restart_success": False}
+        return {"restart_attempted": False, "restart_success": None}
 
     if host.connection_mode != "tcp" or not host.tcp_url:
         logger.warning(
