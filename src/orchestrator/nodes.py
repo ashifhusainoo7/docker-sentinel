@@ -4,8 +4,10 @@ import uuid
 
 import docker
 import docker.errors
+from sqlalchemy import func, update
 
 from src.listener._tls import build_tls_config
+from src.models.crash_event import CrashEvent
 from src.models.docker_host import DockerHost
 from src.orchestrator.state import CrashState
 from src.services.database import async_session_factory
@@ -104,12 +106,35 @@ async def make_call(state: CrashState) -> dict:
 
 
 async def log_event(state: CrashState) -> dict:
-    """Node: Log the crash event and all actions to the database."""
-    raise NotImplementedError(
-        "log_event node not yet implemented. "
-        "Will update crash_event record in PostgreSQL with analysis results "
-        "and action flags, then update Prometheus metrics."
-    )
+    """Node: UPDATE the pending CrashEvent row with analysis + action results.
+
+    Sets resolved_at = now() unconditionally — "workflow completed",
+    not "problem fixed".
+    """
+    crash_id = uuid.UUID(state["crash_event_id"])
+    analysis = state.get("analysis") or {}
+
+    async with async_session_factory() as session:
+        await session.execute(
+            update(CrashEvent)
+            .where(CrashEvent.id == crash_id)
+            .values(
+                root_cause=analysis.get("root_cause"),
+                category=analysis.get("category"),
+                severity=analysis.get("severity"),
+                confidence=analysis.get("confidence"),
+                suggestions=analysis.get("suggestions") or [],
+                restart_attempted=state.get("restart_attempted", False),
+                restart_success=state.get("restart_success"),
+                cache_hit=state.get("cache_hit", False),
+                slack_sent=state.get("slack_sent", False),
+                email_sent=state.get("email_sent", False),
+                call_made=state.get("call_triggered", False),
+                resolved_at=func.now(),
+            )
+        )
+        await session.commit()
+    return {}
 
 
 def should_restart(state: CrashState) -> str:
