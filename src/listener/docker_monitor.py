@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -41,6 +43,12 @@ class DockerMonitor:
         self._db_session_factory = db_session_factory
         self._dedup = DedupCache(window_seconds=60.0)
         self._status = "pending"
+        self._shutdown_event = threading.Event()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._queue: asyncio.Queue | None = None
+        self._thread: threading.Thread | None = None
+        self._consumer_task: asyncio.Task | None = None
+        self._async_client = None  # docker client used from the async consumer
 
     @property
     def status(self) -> str:
@@ -105,7 +113,95 @@ class DockerMonitor:
         return await asyncio.to_thread(_get)
 
     async def start(self) -> None:
-        raise NotImplementedError("Implemented in Task 7")
+        if self._thread is not None:
+            return
+        self._loop = asyncio.get_running_loop()
+        self._queue = asyncio.Queue(maxsize=1000)
+        self._async_client = docker.DockerClient(
+            base_url=self.host_url, tls=self.tls_config
+        )
+        self._shutdown_event.clear()
+        self._thread = threading.Thread(
+            target=self._thread_loop, name=f"docker-monitor-{self.host_id}", daemon=True
+        )
+        self._thread.start()
+        self._consumer_task = asyncio.create_task(self._async_consumer())
+        logger.info("Started DockerMonitor for host %s", self.host_id)
 
     async def stop(self) -> None:
-        raise NotImplementedError("Implemented in Task 7")
+        self._shutdown_event.set()
+        self._status = "stopped"
+        await update_host_status(
+            self._db_session_factory, self.host_id, "stopped", None
+        )
+        if self._consumer_task is not None:
+            self._consumer_task.cancel()
+            try:
+                await self._consumer_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if self._thread is not None:
+            # Thread is daemon; we don't hang on join forever.
+            self._thread.join(timeout=5.0)
+        if self._async_client is not None:
+            try:
+                self._async_client.close()
+            except Exception:
+                pass
+        logger.info("Stopped DockerMonitor for host %s", self.host_id)
+
+    def _thread_loop(self) -> None:
+        """Runs in a dedicated thread. Bridges docker.events() to the async queue."""
+        backoff = 1.0
+        while not self._shutdown_event.is_set():
+            client = None
+            try:
+                client = docker.DockerClient(
+                    base_url=self.host_url, tls=self.tls_config
+                )
+                self._set_status("connected", None)
+                backoff = 1.0
+                for event in client.events(
+                    filters={"event": ["die", "oom", "kill"]}, decode=True
+                ):
+                    if self._shutdown_event.is_set():
+                        break
+                    if not self._loop or self._loop.is_closed():
+                        break
+                    asyncio.run_coroutine_threadsafe(
+                        self._queue.put(event), self._loop
+                    )
+            except Exception as exc:
+                msg = str(exc)[:255]
+                logger.warning(
+                    "Docker event stream error on host %s: %s", self.host_id, msg
+                )
+                self._set_status("reconnecting", msg)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60.0)
+            finally:
+                if client is not None:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+
+    async def _async_consumer(self) -> None:
+        while True:
+            event = await self._queue.get()
+            try:
+                await self._process_event(event, self._async_client)
+            except Exception:
+                logger.exception("Error processing crash event")
+
+    def _set_status(self, status: str, message: str | None) -> None:
+        """Thread-safe status update: schedules coroutine on the main loop."""
+        self._status = status
+        if self._loop is None or self._loop.is_closed():
+            return
+        asyncio.run_coroutine_threadsafe(
+            update_host_status(
+                self._db_session_factory, self.host_id, status, message
+            ),
+            self._loop,
+        )
