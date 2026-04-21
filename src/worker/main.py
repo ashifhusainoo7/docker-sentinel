@@ -108,9 +108,18 @@ async def _process_event(
         await session.commit()
 
     state = {
-        "crash_event_id": str(crash_event_id),
         "tenant_id": str(tenant_id),
-        "event_data": event,
+        "crash_event_id": str(crash_event_id),
+        "docker_host_id": event["docker_host_id"],
+        "crash_event": event,
+        "analysis": None,
+        "cache_hit": False,
+        "restart_attempted": False,
+        "restart_success": None,
+        "slack_sent": False,
+        "email_sent": False,
+        "call_triggered": False,
+        "recent_crash_count": 0,
     }
     try:
         await crash_workflow.ainvoke(state)
