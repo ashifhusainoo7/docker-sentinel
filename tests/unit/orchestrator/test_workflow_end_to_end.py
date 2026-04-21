@@ -9,6 +9,7 @@ from src.orchestrator.graph import crash_workflow
 def _fake_host(host_id):
     h = MagicMock()
     h.id = host_id
+    h.connection_mode = "tcp"
     h.tcp_url = "tcp://test:2376"
     h.tls_enabled = False
     h.tls_ca = None

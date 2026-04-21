@@ -51,6 +51,14 @@ async def attempt_restart(state: CrashState) -> dict:
         logger.warning("Docker host %s not found; cannot restart", host_id)
         return {"restart_attempted": True, "restart_success": False}
 
+    if host.connection_mode != "tcp" or not host.tcp_url:
+        logger.warning(
+            "Host %s is not TCP-mode (mode=%s); skipping restart",
+            host_id,
+            host.connection_mode,
+        )
+        return {"restart_attempted": False, "restart_success": None}
+
     tls_config = build_tls_config(host)
 
     def _do_restart() -> bool:
@@ -146,10 +154,12 @@ def should_restart(state: CrashState) -> str:
 
 
 def check_restart_result(state: CrashState) -> str:
-    """Conditional edge: after restart, check if it succeeded."""
-    if state.get("restart_success"):
-        return "log"
-    return "notify_slack"
+    """Conditional edge: after restart, route to log.
+
+    Phase 1: all paths route to `log` because notify_slack is NotImplementedError.
+    Phase 2 will restore the `restart_success=False → notify_slack` edge.
+    """
+    return "log"
 
 
 def check_multi_crash(state: CrashState) -> str:
