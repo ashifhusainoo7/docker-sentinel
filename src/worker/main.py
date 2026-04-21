@@ -1,61 +1,90 @@
 import asyncio
 import logging
-import signal
+import uuid
+from typing import Awaitable, Callable
 
-from src.listener.manager import ListenerManager
-from src.services.metrics import start_metrics_server
+from sqlalchemy import select
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-)
+from src.models.tenant import Tenant
+from src.services.database import async_session_factory
+
 logger = logging.getLogger("sentinel.worker")
 
-
-async def consume_crash_events():
-    """Main loop: consume crash events from Redis and run through LangGraph orchestrator."""
-    raise NotImplementedError(
-        "Crash event consumer not yet implemented. "
-        "Will poll all tenant Redis streams, deserialize CrashEvents, "
-        "run each through crash_workflow.ainvoke(), and handle results."
-    )
+ConsumerFn = Callable[[uuid.UUID, asyncio.Event], Awaitable[None]]
 
 
-async def main():
-    logger.info("Starting DockerSentinel Worker...")
+class TenantConsumerSupervisor:
+    """Maintains one asyncio consumer task per tenant.
 
-    # Start Prometheus metrics server for worker
-    start_metrics_server(port=9091)
+    Polls the tenants table every sync_interval seconds; spawns consumers
+    for new tenants and cancels consumers for removed tenants.
+    """
 
-    # Start listener manager (manages Docker connections)
-    manager = ListenerManager()
+    def __init__(
+        self,
+        db_session_factory,
+        consume_fn: ConsumerFn,
+        sync_interval: float = 30.0,
+    ):
+        self._db_session_factory = db_session_factory
+        self._consume_fn = consume_fn
+        self._sync_interval = sync_interval
+        self._tasks: dict[uuid.UUID, asyncio.Task] = {}
+        self._shutdown = asyncio.Event()
+        self._sync_task: asyncio.Task | None = None
 
-    # Handle shutdown gracefully
-    shutdown_event = asyncio.Event()
+    async def sync_tenants(self) -> None:
+        async with self._db_session_factory() as session:
+            result = await session.execute(select(Tenant))
+            tenants = list(result.scalars().all())
+        desired = {t.id for t in tenants}
 
-    def handle_signal():
-        logger.info("Shutdown signal received")
-        shutdown_event.set()
+        for tid in list(self._tasks.keys()):
+            if tid not in desired:
+                task = self._tasks.pop(tid)
+                task.cancel()
 
-    loop = asyncio.get_event_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            loop.add_signal_handler(sig, handle_signal)
-        except NotImplementedError:
-            pass  # Windows doesn't support add_signal_handler
+        for tid in desired:
+            if tid in self._tasks:
+                continue
+            self._tasks[tid] = asyncio.create_task(
+                self._consume_fn(tid, self._shutdown), name=f"consume-{tid}"
+            )
 
-    logger.info("Worker ready. Waiting for crash events...")
+    async def start(self) -> None:
+        if self._sync_task is not None:
+            return
+        self._shutdown.clear()
+        self._sync_task = asyncio.create_task(self._loop(), name="tenant-sync")
 
-    # Placeholder — will run:
-    # await asyncio.gather(
-    #     manager.start(),
-    #     consume_crash_events(),
-    # )
+    async def stop(self) -> None:
+        self._shutdown.set()
+        if self._sync_task is not None:
+            self._sync_task.cancel()
+            try:
+                await self._sync_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._sync_task = None
+        if self._tasks:
+            for t in self._tasks.values():
+                t.cancel()
+            await asyncio.gather(*self._tasks.values(), return_exceptions=True)
+            self._tasks.clear()
 
-    await shutdown_event.wait()
-    await manager.stop()
-    logger.info("Worker stopped.")
+    async def _loop(self) -> None:
+        while not self._shutdown.is_set():
+            try:
+                await self.sync_tenants()
+            except Exception:
+                logger.exception("Tenant sync failure")
+            try:
+                await asyncio.wait_for(
+                    self._shutdown.wait(), timeout=self._sync_interval
+                )
+            except asyncio.TimeoutError:
+                pass
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+async def main() -> None:
+    raise NotImplementedError("Implemented in Task 12")
