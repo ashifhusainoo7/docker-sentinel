@@ -106,7 +106,7 @@ Standalone agent for customer-hosted Docker environments.
 - **Pick up from here:** Start with **Phase 1, Item #1** — `src/listener/docker_monitor.py` (Docker event listener). This is the entry point of the entire crash pipeline.
 
 ### 2026-04-21 (Today)
-- **Status:** Phase 1 items #1, #2, #3 complete — crash ingestion pipeline is built.
+- **Status:** ✅ **Phase 1 items #1, #2, #3 shipped** — crash ingestion pipeline is built, tested, and merged to `master`.
 - **What was done:**
   - Brainstormed + wrote design spec: `docs/superpowers/specs/2026-04-21-crash-ingestion-pipeline-design.md`
   - Wrote 14-task implementation plan: `docs/superpowers/plans/2026-04-21-crash-ingestion-pipeline.md`
@@ -114,8 +114,20 @@ Standalone agent for customer-hosted Docker environments.
   - Built `DockerMonitor`: thread/async bridge, dedup (60s window), container filter, logs capture, exponential-backoff reconnect, DB status writes
   - Built `ListenerManager`: 30s DB-sync poll loop, spawn/stop diff, TLS config from DB, parallel graceful shutdown
   - Built `Worker`: `TenantConsumerSupervisor` (per-tenant consumer tasks), `_process_event` (DB insert + LangGraph handoff), `main()` with signal handlers (SIGTERM/SIGINT + Windows fallback)
-  - 30 unit tests passing; 12 commits on branch `feat/crash-ingestion-pipeline` (ready to merge after smoke test)
-- **Pick up from here:** **Phase 1 items #4, #5, #6** — LangGraph orchestrator nodes (`analyze_crash`, `attempt_restart`, `log_event`) in `src/orchestrator/nodes.py`. With the pipeline delivering events, we can now wire real analysis. Note: `analyze_crash` depends on Fix Agent (#7) and Qdrant cache (#15, #16) — consider sequencing Phase 2/3 work first, or stub the LLM call initially.
+  - 32 tests passing (30 unit + 2 schema)
+  - **End-to-end smoke test verified**: real `busybox exit 1` crash → Redis stream → worker consumer → LangGraph invocation. Also captured unrelated containers dying on the host (celery_beat, pgbouncer, fastapi-listener-local) — proves `monitor_all_containers` path works.
+  - Merged `feat/crash-ingestion-pipeline` → `master` via `--no-ff` (merge commit `e02271e`). Branch deleted.
+- **Known deferred trade-offs (document in case they bite later):**
+  - Redis `XACK` fires on read (in `src/services/redis_stream.py`) rather than after successful processing. At-most-once for processing failures. Fix when Phase 2 lands real orchestrator logic.
+  - TLS temp files in `ListenerManager._build_tls_config` are `delete=False`; they leak if a TLS-enabled host is repeatedly toggled. Fine at portfolio scale.
+  - The per-monitor thread pushes to `asyncio.Queue` via `run_coroutine_threadsafe` without checking the returned Future — if the 1000-item queue fills, producer blocks silently. Never happens at portfolio scale.
+- **Pick up from here:** **Phase 1 items #4, #5, #6** — LangGraph orchestrator nodes (`analyze_crash`, `attempt_restart`, `log_event`) in `src/orchestrator/nodes.py`.
+  - The pipeline is delivering events to `crash_workflow.ainvoke()` right now and hitting `NotImplementedError` in the first node.
+  - **Suggested sequence:**
+    1. `log_event` first (trivial — persist analysis results to the existing `CrashEvent` row). Gets the terminal node working so other paths have somewhere to terminate.
+    2. `attempt_restart` next (Docker SDK `container.restart()` with status tracking). Pure Docker, no LLM.
+    3. `analyze_crash` last — depends on Fix Agent (#7, Claude Haiku) and Qdrant cache (#15, #16). Either stub the LLM to return a canned `CrashAnalysis`, OR jump ahead to build Fix Agent + Qdrant first.
+  - **Recommendation:** Do `log_event` + `attempt_restart` first (they complete the non-LLM parts of the state machine), then pivot to Phase 2 Fix Agent so `analyze_crash` has a real backend.
 
 ---
 
