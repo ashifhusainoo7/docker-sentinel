@@ -1,4 +1,16 @@
+import asyncio
+import logging
+import uuid
+
+import docker
+import docker.errors
+
+from src.listener._tls import build_tls_config
+from src.models.docker_host import DockerHost
 from src.orchestrator.state import CrashState
+from src.services.database import async_session_factory
+
+logger = logging.getLogger("sentinel.orchestrator")
 
 
 async def analyze_crash(state: CrashState) -> dict:
@@ -23,12 +35,45 @@ async def analyze_crash(state: CrashState) -> dict:
 
 
 async def attempt_restart(state: CrashState) -> dict:
-    """Node: Attempt to restart the crashed container."""
-    raise NotImplementedError(
-        "attempt_restart node not yet implemented. "
-        "Will use Docker SDK to restart the container, "
-        "verify it's running, and update state."
-    )
+    """Node: attempt container restart on its Docker host.
+
+    Stateless — builds a fresh Docker client per invocation.
+    """
+    host_id = uuid.UUID(state["docker_host_id"])
+    container_id = state["crash_event"]["container_id"]
+
+    async with async_session_factory() as session:
+        host = await session.get(DockerHost, host_id)
+
+    if host is None:
+        logger.warning("Docker host %s not found; cannot restart", host_id)
+        return {"restart_attempted": True, "restart_success": False}
+
+    tls_config = build_tls_config(host)
+
+    def _do_restart() -> bool:
+        client = docker.DockerClient(base_url=host.tcp_url, tls=tls_config)
+        try:
+            container = client.containers.get(container_id)
+            container.restart(timeout=10)
+            return True
+        except docker.errors.NotFound:
+            return False
+        except docker.errors.APIError:
+            logger.exception(
+                "Restart failed for container %s on host %s",
+                container_id,
+                host_id,
+            )
+            return False
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    success = await asyncio.to_thread(_do_restart)
+    return {"restart_attempted": True, "restart_success": success}
 
 
 async def notify_slack(state: CrashState) -> dict:
