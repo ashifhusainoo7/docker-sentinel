@@ -5,7 +5,9 @@ from typing import Awaitable, Callable
 
 from sqlalchemy import select
 
+from src.models.crash_event import CrashEvent
 from src.models.tenant import Tenant
+from src.orchestrator.graph import crash_workflow
 from src.services.database import async_session_factory
 
 logger = logging.getLogger("sentinel.worker")
@@ -84,6 +86,43 @@ class TenantConsumerSupervisor:
                 )
             except asyncio.TimeoutError:
                 pass
+
+
+async def _process_event(
+    event: dict, tenant_id: uuid.UUID, db_session_factory
+) -> None:
+    """Insert a pending CrashEvent row, then invoke the LangGraph workflow."""
+    crash_row = CrashEvent(
+        tenant_id=tenant_id,
+        docker_host_id=uuid.UUID(event["docker_host_id"]),
+        container_name=event.get("container_name", ""),
+        container_id=event.get("container_id", ""),
+        image=event.get("image", ""),
+        exit_code=event.get("exit_code"),
+        logs=event.get("logs"),
+    )
+    async with db_session_factory() as session:
+        session.add(crash_row)
+        await session.flush()
+        crash_event_id = crash_row.id
+        await session.commit()
+
+    state = {
+        "crash_event_id": str(crash_event_id),
+        "tenant_id": str(tenant_id),
+        "event_data": event,
+    }
+    try:
+        await crash_workflow.ainvoke(state)
+    except NotImplementedError:
+        logger.info(
+            "LangGraph node not implemented yet (expected during Phase 1) for event=%s",
+            event.get("id"),
+        )
+    except Exception:
+        logger.exception(
+            "Error invoking crash workflow for event=%s", event.get("id")
+        )
 
 
 async def main() -> None:
