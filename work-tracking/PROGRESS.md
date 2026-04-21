@@ -140,8 +140,9 @@ Standalone agent for customer-hosted Docker environments.
   - Stubbed `analyze_crash` (returns canned CrashAnalysis with `restart_likely_fixes=True` so the state machine stays live)
   - Implemented `attempt_restart` (stateless fresh Docker client via `asyncio.to_thread`; handles `NotFound`, `APIError`, missing host)
   - Implemented `log_event` (UPDATE pending CrashEvent row with all analysis + action fields, `resolved_at = now()`)
-  - 41 tests passing (30 baseline + 2 schema + 9 new orchestrator)
-  - Code review approved with one noted trade-off (TLS temp files — carried forward from yesterday)
+  - **End-to-end smoke test verified** on 2026-04-22: real crash → fully populated CrashEvent row (`restart_attempted=t, restart_success=t, root_cause, severity, resolved_at` all set)
+  - 46 tests passing (44 unit + 2 schema); 2 review-fix commits after initial review caught a critical routing bug (`check_restart_result` → `notify_slack` NotImplementedError) and a semantic inconsistency in `attempt_restart` early-return branches — both fixed
+  - Merged `feat/orchestrator-nodes` → `master` via `--no-ff` (merge commit `85e1b71`). Branch deleted.
 - **Pick up from here:** **Phase 2 Fix Agent (item #7)** — replace the `analyze_crash` stub body with real Claude Haiku calls. Then Qdrant cache (items #15, #16) so repeat crashes don't burn LLM tokens. After Fix Agent: notification agents (#8–11) — SlackAgent, EmailAgent, CallAgent.
   - **Suggested sequence for next session:**
     1. Design Fix Agent + Qdrant together (they're tightly coupled — cache check happens before LLM call).
