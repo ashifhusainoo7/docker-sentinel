@@ -2,9 +2,9 @@ import asyncio
 import logging
 import uuid
 
-import docker
 from sqlalchemy import select
 
+from src.listener._tls import build_tls_config
 from src.listener.docker_monitor import DockerMonitor
 from src.models.docker_host import DockerHost
 
@@ -65,28 +65,7 @@ class ListenerManager:
             self._listeners[host_id] = monitor
 
     def _build_tls_config(self, host: DockerHost):
-        if not host.tls_enabled:
-            return None
-        # Minimal TLSConfig from PEM-encoded strings stored in DB.
-        # For portfolio-scale, we trust the certs from DB. A production build
-        # would write these to tempfiles with tight permissions.
-        import tempfile
-
-        def _write(pem: str) -> str:
-            f = tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="w")
-            f.write(pem)
-            f.close()
-            return f.name
-
-        return docker.tls.TLSConfig(
-            ca_cert=_write(host.tls_ca) if host.tls_ca else None,
-            client_cert=(
-                (_write(host.tls_cert), _write(host.tls_key))
-                if host.tls_cert and host.tls_key
-                else None
-            ),
-            verify=True,
-        )
+        return build_tls_config(host)
 
     async def start(self) -> None:
         if self._sync_task is not None:
