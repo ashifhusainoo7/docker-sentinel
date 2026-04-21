@@ -89,7 +89,39 @@ class ListenerManager:
         )
 
     async def start(self) -> None:
-        raise NotImplementedError("Implemented in Task 9")
+        if self._sync_task is not None:
+            return
+        self._shutdown.clear()
+        self._sync_task = asyncio.create_task(self._sync_loop(), name="listener-sync")
+        logger.info("ListenerManager started (interval=%.1fs)", self._sync_interval)
 
     async def stop(self) -> None:
-        raise NotImplementedError("Implemented in Task 9")
+        self._shutdown.set()
+        if self._sync_task is not None:
+            self._sync_task.cancel()
+            try:
+                await self._sync_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._sync_task = None
+        # Stop all monitors in parallel.
+        if self._listeners:
+            await asyncio.gather(
+                *(m.stop() for m in self._listeners.values()),
+                return_exceptions=True,
+            )
+            self._listeners.clear()
+        logger.info("ListenerManager stopped")
+
+    async def _sync_loop(self) -> None:
+        while not self._shutdown.is_set():
+            try:
+                await self.sync_listeners()
+            except Exception:
+                logger.exception("ListenerManager sync failure")
+            try:
+                await asyncio.wait_for(
+                    self._shutdown.wait(), timeout=self._sync_interval
+                )
+            except asyncio.TimeoutError:
+                pass  # normal path — interval elapsed

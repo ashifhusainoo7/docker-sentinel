@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -101,3 +102,30 @@ async def test_sync_skips_agent_mode_hosts(fake_session_with_hosts, host_id, ten
     session = factory.return_value
     session.execute.assert_awaited_once()
     # The actual filter clause is tested implicitly: if we pass a non-TCP host, it won't appear.
+
+
+@pytest.mark.asyncio
+async def test_manager_start_runs_sync_in_background(fake_session_with_hosts):
+    factory = fake_session_with_hosts([])
+    mgr = ListenerManager(db_session_factory=factory, sync_interval=0.05)
+    with patch.object(mgr, "sync_listeners", new=AsyncMock()) as sync:
+        await mgr.start()
+        await asyncio.sleep(0.12)  # allow ≥2 sync cycles
+        await mgr.stop()
+        assert sync.await_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_manager_stop_terminates_sync_task_and_stops_monitors(fake_session_with_hosts, host_id):
+    factory = fake_session_with_hosts([])
+    mgr = ListenerManager(db_session_factory=factory, sync_interval=0.05)
+    mon = MagicMock()
+    mon.stop = AsyncMock()
+    mgr._listeners[host_id] = mon
+
+    await mgr.start()
+    await asyncio.sleep(0.05)
+    await mgr.stop()
+
+    mon.stop.assert_awaited()
+    assert mgr._sync_task is None or mgr._sync_task.done()
