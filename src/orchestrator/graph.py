@@ -45,11 +45,13 @@ def build_crash_workflow() -> StateGraph:
         {"attempt_restart": "restart", "log": "log"},
     )
 
-    # Conditional: after restart, check result
+    # Conditional: after restart, route to log.
+    # Phase 2: notify_slack stubbed. Phase 2.5 will add a "notify_slack" → "slack"
+    # entry here once check_restart_result returns it for restart_success=False.
     workflow.add_conditional_edges(
         "restart",
         check_restart_result,
-        {"log": "log", "notify_slack": "slack"},
+        {"log": "log"},
     )
 
     # Slack always flows to email

@@ -155,8 +155,10 @@ def should_restart(state: CrashState) -> str:
 def check_restart_result(state: CrashState) -> str:
     """Conditional edge: after restart, route to log.
 
-    Phase 1: all paths route to `log` because notify_slack is NotImplementedError.
-    Phase 2 will restore the `restart_success=False → notify_slack` edge.
+    Phase 1/2: all paths route to `log` because notify_slack is NotImplementedError.
+    Phase 2.5 (notification agents) will restore the
+    `restart_success=False → notify_slack` edge and add a matching key to the
+    graph's conditional-edge mapping.
     """
     return "log"
 
