@@ -6,6 +6,7 @@ import docker
 import docker.errors
 from sqlalchemy import func, update
 
+from src.agents.fix_agent import get_fix_agent
 from src.listener._tls import build_tls_config
 from src.models.crash_event import CrashEvent
 from src.models.docker_host import DockerHost
@@ -16,23 +17,16 @@ logger = logging.getLogger("sentinel.orchestrator")
 
 
 async def analyze_crash(state: CrashState) -> dict:
-    """Node: stub until Fix Agent lands in Phase 2.
+    """Node: call FixAgent to analyze the crash event.
 
-    Returns a canned CrashAnalysis dict so the state machine stays live.
-    Sets restart_likely_fixes=True to route through attempt_restart → log_event.
+    Phase 2: real OpenAI call via FixAgent (with Qdrant stubbed).
+    Phase 3: Qdrant cache gates the LLM call.
     """
+    agent = get_fix_agent()
+    analysis, cache_hit = await agent.analyze(state["crash_event"])
     return {
-        "analysis": {
-            "restart_likely_fixes": True,
-            "root_cause": "Pending Fix Agent implementation (Phase 2)",
-            "severity": "medium",
-            "category": "unknown",
-            "suggestions": [
-                "Fix Agent not yet implemented — placeholder analysis"
-            ],
-            "confidence": 0.0,
-        },
-        "cache_hit": False,
+        "analysis": analysis.model_dump(),
+        "cache_hit": cache_hit,
     }
 
 
