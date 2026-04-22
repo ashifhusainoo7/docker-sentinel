@@ -1,36 +1,79 @@
+import logging
+
+from langchain_openai import ChatOpenAI
+
+from src.agents._prompts import build_analysis_prompt
 from src.schemas.crash_event import CrashAnalysis
+from src.services.crash_memory import CrashMemory
+
+logger = logging.getLogger("sentinel.agents.fix")
+
+
+def _minimal_fallback() -> CrashAnalysis:
+    """Returned when both LLM primary and fallback fail."""
+    return CrashAnalysis(
+        restart_likely_fixes=False,
+        root_cause="LLM unavailable — manual investigation required",
+        severity="medium",
+        category="unknown",
+        suggestions=["Check LLM provider status", "Review logs manually"],
+        confidence=0.0,
+    )
 
 
 class FixAgent:
-    """Analyzes crash logs, determines root cause, decides if restart will fix it.
+    """Analyzes crash events via OpenAI, with Qdrant cache lookup.
 
-    Primary: Claude Haiku 4.5
-    Fallback: OpenAI gpt-4o-mini
-    Cache: Qdrant vector similarity (threshold 0.92)
-    Output: CrashAnalysis (structured Pydantic model)
+    Phase 2: CrashMemory stub returns None → every event hits the LLM.
+    Phase 3: Qdrant similarity check gates the LLM call.
     """
 
     def __init__(self):
-        # Placeholder — will initialize:
-        # - ChatAnthropic(model="claude-haiku-4-5-20251001") as primary
-        # - ChatOpenAI(model="gpt-4o-mini") as fallback
-        # - primary.with_fallbacks([fallback])
-        # - llm.with_structured_output(CrashAnalysis)
-        # - CrashMemory() for Qdrant cache
-        pass
+        self._memory = CrashMemory()
+        self._chain = self._build_chain()
 
-    async def analyze(self, crash_event: dict) -> CrashAnalysis:
-        """Analyze a crash event and return structured diagnosis.
+    def _build_chain(self):
+        primary = ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0,
+            timeout=30,
+        ).with_structured_output(CrashAnalysis)
+        fallback = ChatOpenAI(
+            model="gpt-4o",
+            temperature=0,
+            timeout=30,
+        ).with_structured_output(CrashAnalysis)
+        return primary.with_fallbacks([fallback])
 
-        Flow:
-        1. Check Qdrant cache for similar past crashes (< 100ms)
-        2. If cache hit (similarity > 0.92): return cached analysis
-        3. If no match: call LLM with crash logs + context
-        4. Store new analysis in Qdrant for future matching
-        5. Return CrashAnalysis
-        """
-        raise NotImplementedError(
-            "Fix Agent analysis not yet implemented. "
-            "Will use Claude Haiku with structured output to analyze crash logs. "
-            "Checks Qdrant cache first, falls back to LLM, stores result."
-        )
+    async def analyze(self, crash_event: dict) -> tuple[CrashAnalysis, bool]:
+        """Analyze a crash event. Returns (analysis, cache_hit)."""
+        logs = crash_event.get("logs") or ""
+
+        cached = await self._memory.find_similar(logs)
+        if cached is not None:
+            return CrashAnalysis.model_validate(cached), True
+
+        try:
+            messages = build_analysis_prompt(crash_event)
+            analysis = await self._chain.ainvoke(messages)
+        except Exception:
+            logger.exception("LLM call failed for crash analysis")
+            return _minimal_fallback(), False
+
+        try:
+            await self._memory.store(logs, analysis.model_dump())
+        except Exception:
+            logger.exception("Failed to store crash analysis in memory")
+
+        return analysis, False
+
+
+_agent_instance: FixAgent | None = None
+
+
+def get_fix_agent() -> FixAgent:
+    """Return the module-level singleton, building it on first call."""
+    global _agent_instance
+    if _agent_instance is None:
+        _agent_instance = FixAgent()
+    return _agent_instance
