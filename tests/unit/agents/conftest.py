@@ -58,7 +58,7 @@ def fix_agent_with_mocks(sample_crash_analysis):
     agent._memory.find_similar = AsyncMock(return_value=None)
     agent._memory.store = AsyncMock(return_value=None)
 
-    agent._chain = MagicMock()
+    agent._chain = AsyncMock()
     agent._chain.ainvoke = AsyncMock(return_value=sample_crash_analysis)
 
     return agent
