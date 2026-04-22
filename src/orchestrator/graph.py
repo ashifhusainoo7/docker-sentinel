@@ -36,11 +36,13 @@ def build_crash_workflow() -> StateGraph:
     # Entry point
     workflow.set_entry_point("analyze")
 
-    # Conditional: after analysis, decide restart vs notify
+    # Conditional: after analysis, decide restart vs skip to log.
+    # Phase 2: notify_slack stubbed, so `log` branch is the not-restart path.
+    # Phase 2.5: restore "notify_slack" → "slack" when notifications land.
     workflow.add_conditional_edges(
         "analyze",
         should_restart,
-        {"attempt_restart": "restart", "notify_slack": "slack"},
+        {"attempt_restart": "restart", "log": "log"},
     )
 
     # Conditional: after restart, check result

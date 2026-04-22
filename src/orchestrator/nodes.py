@@ -140,11 +140,16 @@ async def log_event(state: CrashState) -> dict:
 
 
 def should_restart(state: CrashState) -> str:
-    """Conditional edge: decide whether to attempt restart or go straight to notification."""
+    """Conditional edge: decide whether to attempt restart or skip to log.
+
+    Phase 2: notify_slack is NotImplementedError, so the False branch routes
+    to `log` instead. Phase 2.5 (notification agents) will restore the
+    `restart_likely_fixes=False → notify_slack` edge.
+    """
     analysis = state.get("analysis")
     if analysis and analysis.get("restart_likely_fixes"):
         return "attempt_restart"
-    return "notify_slack"
+    return "log"
 
 
 def check_restart_result(state: CrashState) -> str:

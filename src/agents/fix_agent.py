@@ -2,6 +2,7 @@ import logging
 
 from langchain_openai import ChatOpenAI
 
+from config.settings import settings
 from src.agents._prompts import build_analysis_prompt
 from src.schemas.crash_event import CrashAnalysis
 from src.services.crash_memory import CrashMemory
@@ -33,15 +34,20 @@ class FixAgent:
         self._chain = self._build_chain()
 
     def _build_chain(self):
+        # Pass api_key explicitly from settings so the key flows through
+        # pydantic-settings → .env rather than relying on process env vars.
+        api_key = settings.openai_api_key
         primary = ChatOpenAI(
             model="gpt-4o-mini",
             temperature=0,
             timeout=30,
+            api_key=api_key,
         ).with_structured_output(CrashAnalysis)
         fallback = ChatOpenAI(
             model="gpt-4o",
             temperature=0,
             timeout=30,
+            api_key=api_key,
         ).with_structured_output(CrashAnalysis)
         return primary.with_fallbacks([fallback])
 
