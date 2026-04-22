@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.orchestrator.graph import crash_workflow
+from src.schemas.crash_event import CrashAnalysis
 
 
 def _fake_host(host_id):
@@ -37,13 +38,26 @@ async def test_workflow_happy_path_invokes_all_three_nodes(initial_state, host_i
     session.__aenter__.return_value = session
     session.__aexit__.return_value = None
 
+    canned = CrashAnalysis(
+        restart_likely_fixes=True,
+        root_cause="OOM",
+        severity="high",
+        category="oom",
+        suggestions=["Raise memory"],
+        confidence=0.9,
+    )
+    fake_agent = MagicMock()
+    fake_agent.analyze = AsyncMock(return_value=(canned, False))
+
     with patch("src.orchestrator.nodes.async_session_factory", return_value=session), \
-         patch("src.orchestrator.nodes.docker.DockerClient", return_value=fake_client):
+         patch("src.orchestrator.nodes.docker.DockerClient", return_value=fake_client), \
+         patch("src.orchestrator.nodes.get_fix_agent", return_value=fake_agent):
         final_state = await crash_workflow.ainvoke(initial_state)
 
-    # analyze_crash stub ran
+    # analyze_crash called fix_agent
     assert final_state["analysis"] is not None
     assert final_state["analysis"]["restart_likely_fixes"] is True
+    assert final_state["analysis"]["root_cause"] == "OOM"
     assert final_state["cache_hit"] is False
 
     # attempt_restart ran and succeeded

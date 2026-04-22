@@ -6,6 +6,7 @@ import docker
 import docker.errors
 from sqlalchemy import func, update
 
+from src.agents.fix_agent import get_fix_agent
 from src.listener._tls import build_tls_config
 from src.models.crash_event import CrashEvent
 from src.models.docker_host import DockerHost
@@ -16,23 +17,16 @@ logger = logging.getLogger("sentinel.orchestrator")
 
 
 async def analyze_crash(state: CrashState) -> dict:
-    """Node: stub until Fix Agent lands in Phase 2.
+    """Node: call FixAgent to analyze the crash event.
 
-    Returns a canned CrashAnalysis dict so the state machine stays live.
-    Sets restart_likely_fixes=True to route through attempt_restart → log_event.
+    Phase 2: real OpenAI call via FixAgent (with Qdrant stubbed).
+    Phase 3: Qdrant cache gates the LLM call.
     """
+    agent = get_fix_agent()
+    analysis, cache_hit = await agent.analyze(state["crash_event"])
     return {
-        "analysis": {
-            "restart_likely_fixes": True,
-            "root_cause": "Pending Fix Agent implementation (Phase 2)",
-            "severity": "medium",
-            "category": "unknown",
-            "suggestions": [
-                "Fix Agent not yet implemented — placeholder analysis"
-            ],
-            "confidence": 0.0,
-        },
-        "cache_hit": False,
+        "analysis": analysis.model_dump(),
+        "cache_hit": cache_hit,
     }
 
 
@@ -146,18 +140,25 @@ async def log_event(state: CrashState) -> dict:
 
 
 def should_restart(state: CrashState) -> str:
-    """Conditional edge: decide whether to attempt restart or go straight to notification."""
+    """Conditional edge: decide whether to attempt restart or skip to log.
+
+    Phase 2: notify_slack is NotImplementedError, so the False branch routes
+    to `log` instead. Phase 2.5 (notification agents) will restore the
+    `restart_likely_fixes=False → notify_slack` edge.
+    """
     analysis = state.get("analysis")
     if analysis and analysis.get("restart_likely_fixes"):
         return "attempt_restart"
-    return "notify_slack"
+    return "log"
 
 
 def check_restart_result(state: CrashState) -> str:
     """Conditional edge: after restart, route to log.
 
-    Phase 1: all paths route to `log` because notify_slack is NotImplementedError.
-    Phase 2 will restore the `restart_success=False → notify_slack` edge.
+    Phase 1/2: all paths route to `log` because notify_slack is NotImplementedError.
+    Phase 2.5 (notification agents) will restore the
+    `restart_success=False → notify_slack` edge and add a matching key to the
+    graph's conditional-edge mapping.
     """
     return "log"
 

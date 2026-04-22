@@ -42,7 +42,7 @@ These form the end-to-end crash detection pipeline. Without these, nothing works
 | 1 | `src/listener/docker_monitor.py` | Docker event listener (connect via Docker SDK, stream die/oom/kill events) | ✅ **Done** |
 | 2 | `src/listener/manager.py` | Listener manager (sync listeners from DB, start/stop monitors) | ✅ **Done** |
 | 3 | `src/worker/main.py` | Crash event consumer (poll Redis streams, invoke LangGraph workflow) | ✅ **Done** |
-| 4 | `src/orchestrator/nodes.py` → `analyze_crash` | Fix Agent call (Qdrant cache check + LLM analysis) | ✅ **Stubbed** (body filled in by Phase 2 Fix Agent) |
+| 4 | `src/orchestrator/nodes.py` → `analyze_crash` | Fix Agent call (Qdrant cache check + LLM analysis) | ✅ **Done** (Fix Agent wired; Qdrant still stubbed — Phase 3) |
 | 5 | `src/orchestrator/nodes.py` → `attempt_restart` | Docker SDK restart container | ✅ **Done** |
 | 6 | `src/orchestrator/nodes.py` → `log_event` | Persist crash event result to PostgreSQL | ✅ **Done** |
 
@@ -51,7 +51,7 @@ Once the pipeline works, add intelligence and alerting.
 
 | # | File | What to Implement | Priority |
 |---|------|-------------------|----------|
-| 7 | `src/agents/fix_agent.py` | LLM crash analysis (Claude Haiku + structured output, Qdrant cache) | **High** |
+| 7 | `src/agents/fix_agent.py` | LLM crash analysis (OpenAI `gpt-4o-mini` primary + `gpt-4o` fallback, structured output) | ✅ **Done** (Qdrant cache uses Phase 2 stubs — Phase 3 swaps in real Qdrant) |
 | 8 | `src/agents/slack_agent.py` | Slack webhook notification (Block Kit format) | **High** |
 | 9 | `src/agents/email_agent.py` | Email notification (Jinja2 template + SMTP) | **High** |
 | 10 | `src/agents/call_agent.py` | Twilio voice call escalation (LLM script generation + TwiML) | **Medium** |
@@ -149,6 +149,29 @@ Standalone agent for customer-hosted Docker environments.
     2. Build Fix Agent with a stubbed Qdrant first (always miss → always call LLM). Prove end-to-end LLM invocation.
     3. Add real Qdrant embeddings + similarity search.
   - **Pre-work needed:** Anthropic API key in `.env` (currently has `your_anthropic_api_key` placeholder).
+
+### 2026-04-22 (Today)
+- **Status:** ✅ **Phase 2 item #7 shipped** — Fix Agent calling OpenAI with structured output. Phase 1 item #4 (`analyze_crash`) is now fully wired end-to-end with real LLM analysis.
+- **What was done:**
+  - Brainstormed + wrote design spec: `docs/superpowers/specs/2026-04-22-fix-agent-design.md`
+  - Wrote 8-task plan: `docs/superpowers/plans/2026-04-22-fix-agent.md`
+  - Replaced `CrashMemory` `NotImplementedError` with Phase 2 stubs (find_similar → None, store → pass)
+  - Added `src/agents/_prompts.py` — pure prompt builder with 200-line log truncation
+  - Built `FixAgent` (singleton + LangChain chain: gpt-4o-mini primary + gpt-4o fallback, `with_structured_output(CrashAnalysis)`, minimal-fallback analysis on both-fail)
+  - Rewired `analyze_crash` to call `get_fix_agent().analyze(...)`
+  - Updated end-to-end workflow test to patch `get_fix_agent`
+  - **Direction change:** Project switched to OpenAI as main LLM (previously planned Anthropic Claude). OpenAI API key already in `.env`.
+  - 58 unit tests passing (up from 46), all LLM mocked in CI. One review-fix commit (AsyncMock in conftest for tighter sync/async regression detection).
+- **Known deferred items:**
+  - Qdrant cache is still stubbed — Phase 3 will embed logs with `text-embedding-3-small` and upsert to a Qdrant collection.
+  - `CrashEvent.llm_provider` and `llm_latency_ms` columns still NULL — minor follow-up task in a later session.
+  - No Prometheus metrics for LLM failures yet — add with observability work.
+- **Pick up from here:** **Phase 3 Qdrant memory (items #15, #16)** — replace `CrashMemory` stubs with real vector similarity search. Suggested sequence:
+  1. Design Qdrant collection schema (vector size, payload fields, distance metric).
+  2. Build `CrashMemory.store()` first (easier — just embed + upsert).
+  3. Build `CrashMemory.find_similar()` with the 0.92 threshold.
+  4. Tune the threshold against real crash logs captured in `crash_events` table.
+  - **Alternative:** Jump to Phase 2 notification agents (#8–11) first — SlackAgent, EmailAgent, CallAgent — to complete the user-visible workflow. Qdrant is pure cost optimization; notifications are user-facing.
 
 ---
 
