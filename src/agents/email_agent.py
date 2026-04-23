@@ -1,5 +1,6 @@
 import logging
 from email.message import EmailMessage
+from pathlib import Path
 
 import aiosmtplib
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -7,6 +8,10 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from config.settings import settings
 
 logger = logging.getLogger("sentinel.agents.email")
+
+# Anchor template lookup to this file, not CWD — avoids silent TemplateNotFound
+# when the worker is launched from a different working directory (Docker, CI).
+_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 
 
 class EmailAgent:
@@ -33,7 +38,7 @@ class EmailAgent:
         self.from_email = from_email
         self.timeout_s = timeout_s
         self._env = Environment(
-            loader=FileSystemLoader("src/templates"),
+            loader=FileSystemLoader(str(_TEMPLATE_DIR)),
             autoescape=select_autoescape(["html"]),
         )
 

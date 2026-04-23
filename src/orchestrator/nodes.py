@@ -147,12 +147,18 @@ async def send_email(state: CrashState) -> dict:
 
 
 async def make_call(state: CrashState) -> dict:
-    """Node: Make voice call for critical multi-crash escalation."""
-    raise NotImplementedError(
-        "make_call node not yet implemented. "
-        "Will look up tenant escalation config, "
-        "instantiate CallAgent, and call escalate()."
+    """Node: voice-call escalation for multi-crash scenarios.
+
+    Phase 2b: CallAgent is not yet implemented. The graph can reach this
+    node only when state["recent_crash_count"] >= 2, which the worker
+    currently never sets (always 0 in _process_event). The no-op return
+    below is defensive — it keeps the workflow alive if someone later
+    starts populating recent_crash_count before CallAgent lands.
+    """
+    logger.info(
+        "make_call reached but CallAgent not yet implemented; skipping"
     )
+    return {"call_triggered": False}
 
 
 async def log_event(state: CrashState) -> dict:
