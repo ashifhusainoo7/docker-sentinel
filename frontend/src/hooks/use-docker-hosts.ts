@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 export interface DockerHost {
@@ -34,22 +34,34 @@ export function useDockerHosts() {
   const [hosts, setHosts] = useState<DockerHost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const generationRef = useRef(0);
 
   const fetchHosts = useCallback(() => {
+    const myGen = ++generationRef.current;
     setLoading(true);
     setError(null);
     api
       .get<DockerHost[]>("/api/v1/hosts")
-      .then(setHosts)
-      .catch((e: unknown) =>
-        setError(e instanceof Error ? e : new Error("fetch failed")),
-      )
-      .finally(() => setLoading(false));
+      .then((data) => {
+        if (myGen !== generationRef.current) return;
+        setHosts(data);
+      })
+      .catch((e: unknown) => {
+        if (myGen !== generationRef.current) return;
+        setError(e instanceof Error ? e : new Error("fetch failed"));
+      })
+      .finally(() => {
+        if (myGen !== generationRef.current) return;
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchHosts();
+    return () => {
+      generationRef.current += 1; // discard any in-flight response
+    };
   }, [fetchHosts]);
 
   return { hosts, loading, error, refresh: fetchHosts };
