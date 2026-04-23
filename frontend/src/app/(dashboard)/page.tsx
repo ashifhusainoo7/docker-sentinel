@@ -326,13 +326,17 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricTile
           index={0}
-          label="Crashes (24h)"
-          value={summary.data?.crashes_24h ?? null}
+          label={period === "24h" ? "Crashes (24h)" : `Crashes (${period})`}
+          value={
+            period === "24h"
+              ? (summary.data?.crashes_24h ?? null)
+              : (metrics.data?.crashes_total ?? null)
+          }
           tint="cyan"
           icon={<Flame />}
           deltaPct={metrics.data?.crashes_delta_pct ?? null}
           deltaInverse={false}
-          loading={summary.loading}
+          loading={period === "24h" ? summary.loading : summary.loading || metrics.loading}
         />
         <MetricTile
           index={1}
@@ -379,12 +383,18 @@ export default function DashboardPage() {
                 <AnimatedGradient className="font-bold">AI</AnimatedGradient>{" "}
                 <span>Summary</span>
               </h3>
-              {summary.loading || metrics.loading || !aiSummaryText ? (
+              {summary.loading || metrics.loading ? (
                 <SkeletonText lines={3} />
-              ) : (
+              ) : metrics.error ? (
+                <p className="text-sm text-muted-foreground">
+                  AI summary unavailable — {metrics.error.message}
+                </p>
+              ) : aiSummaryText ? (
                 <p className="text-sm leading-relaxed text-muted-foreground">
                   {aiSummaryText}
                 </p>
+              ) : (
+                <SkeletonText lines={3} />
               )}
             </div>
           </div>
@@ -409,6 +419,12 @@ export default function DashboardPage() {
             <div className="space-y-3">
               <Skeleton className="h-[280px] w-full rounded-md" />
             </div>
+          ) : timeline.error ? (
+            <EmptyState
+              icon={<Activity />}
+              title="Could not load timeline"
+              description={timeline.error.message}
+            />
           ) : timelineEmpty ? (
             <EmptyState
               icon={<Activity />}
