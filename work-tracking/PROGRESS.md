@@ -65,8 +65,8 @@ Vector search for crash deduplication and past fix lookups.
 
 | # | File | What to Implement | Priority |
 |---|------|-------------------|----------|
-| 15 | `src/services/crash_memory.py` → `search()` | Qdrant similarity search (embed crash logs, find similar past crashes) | **High** |
-| 16 | `src/services/crash_memory.py` → `store()` | Qdrant storage (embed + store crash analysis results) | **High** |
+| 15 | `src/services/crash_memory.py` → `find_similar()` | Qdrant similarity search (fastembed + bge-small, tenant-filtered) | ✅ **Done** |
+| 16 | `src/services/crash_memory.py` → `store()` | Qdrant upsert with tenant_id + analysis + metadata payload | ✅ **Done** |
 
 ### Phase 4 — Auth & API Completions
 OAuth flows and remaining API endpoints.
@@ -172,6 +172,29 @@ Standalone agent for customer-hosted Docker environments.
   3. Build `CrashMemory.find_similar()` with the 0.92 threshold.
   4. Tune the threshold against real crash logs captured in `crash_events` table.
   - **Alternative:** Jump to Phase 2 notification agents (#8–11) first — SlackAgent, EmailAgent, CallAgent — to complete the user-visible workflow. Qdrant is pure cost optimization; notifications are user-facing.
+
+### 2026-04-22 (Continued — evening session)
+- **Status:** ✅ **Phase 3 items #15 and #16 shipped** — Qdrant semantic cache live. Repeat crashes reuse cached `CrashAnalysis` without calling OpenAI.
+- **What was done:**
+  - Brainstormed + wrote design spec: `docs/superpowers/specs/2026-04-22-qdrant-memory-design.md`
+  - Wrote 7-task plan: `docs/superpowers/plans/2026-04-22-qdrant-memory.md`
+  - Added `fastembed>=0.3.0` dependency (ONNX-based open embeddings, no PyTorch)
+  - Implemented `CrashMemory` with real `QdrantClient` + `TextEmbedding("BAAI/bge-small-en-v1.5")`, single shared `crash_history` collection, cosine distance, tenant filtering via payload `FieldCondition`, 0.92 default threshold
+  - Thread-safe lazy-init via `threading.Lock` (prevents double model-load under concurrent access)
+  - Reserved-key guard on store payload — metadata can't overwrite `tenant_id`/`analysis`/`created_at` (multi-tenant isolation hardening)
+  - All failures swallowed so LLM path is always reachable
+  - Threaded `tenant_id` through `FixAgent.analyze(crash_event, tenant_id)` and `analyze_crash` node
+  - Added `_build_embedding_text` helper: `"<image> | exit=<code> | <logs>"` for stronger similarity signal
+  - Deleted obsolete `test_crash_memory_stubs.py`; 14 new tests in `tests/unit/services/test_crash_memory.py` (12 planned + 2 hardening tests)
+  - 76 unit tests passing
+- **Known deferred items:**
+  - Threshold tuning — 0.92 is a starting guess for bge-small; revisit after real crash data accumulates.
+  - No TTL / eviction — collection grows forever (fine at portfolio scale).
+  - No Qdrant payload index on `tenant_id` — at scale, the filter becomes a full-scan. Add `create_payload_index(field_name="tenant_id", field_schema="keyword")` when volume warrants.
+  - Embedding-text format is hardcoded in `_build_embedding_text`; changing it requires rebuilding the collection.
+  - `model_version` not in payload — if Fix Agent prompts/models change, old cache entries remain.
+  - Pre-warming the fastembed model in Docker image build for faster first-crash latency.
+- **Pick up from here:** **Phase 2 notification agents (items #8–11)** — SlackAgent, EmailAgent, CallAgent, DashboardAgent. Unlocks the `restart_likely_fixes=False → notify_slack` path currently routed to `log`. User-visible value (a real Slack message on crash is a great demo). After notifications: observability/metrics or multi-worker scaling.
 
 ---
 
