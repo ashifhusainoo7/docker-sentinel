@@ -10,11 +10,6 @@ async def test_health_check(client):
 
 @pytest.mark.asyncio
 async def test_me_requires_auth(client):
+    """Without a cookie or Bearer header, /me returns 401."""
     response = await client.get("/api/v1/auth/me")
-    assert response.status_code == 403  # No auth header
-
-
-@pytest.mark.asyncio
-async def test_github_login_not_implemented(client):
-    response = await client.get("/api/v1/auth/github")
-    assert response.status_code == 500  # NotImplementedError
+    assert response.status_code == 401
