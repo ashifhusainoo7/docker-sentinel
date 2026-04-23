@@ -224,7 +224,17 @@ function RuleEditor({ open, onOpenChange, rule, onSaved }: RuleEditorProps) {
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        // Ignore close attempts (Esc / overlay-click) while a submit is in
+        // flight. The Cancel button is already disabled during saving;
+        // this covers the remaining dismiss paths so toasts don't fire
+        // against a dismissed Sheet.
+        if (!next && saving) return;
+        onOpenChange(next);
+      }}
+    >
       <SheetContent className="w-full sm:max-w-md">
         <SheetHeader className="px-6 pt-6">
           <SheetTitle>{rule ? "Edit rule" : "New escalation rule"}</SheetTitle>
@@ -377,6 +387,13 @@ function RuleCard({ rule, index, onEdit, onDelete, onToggled }: RuleCardProps) {
   const [saving, setSaving] = useState(false);
   const [active, setActive] = useState(rule.is_active);
   const summary = describeCondition(rule.condition);
+
+  // Re-seed local state whenever the server-backed prop changes. Without this,
+  // an optimistic rollback that disagrees with the next refresh leaves the UI
+  // stuck on stale state.
+  useEffect(() => {
+    setActive(rule.is_active);
+  }, [rule.is_active]);
 
   const handleToggle = async (next: boolean) => {
     const previous = active;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { toast } from "sonner";
@@ -90,6 +90,14 @@ function GenerateDialog({ open, onOpenChange, onCreated }: GenerateDialogProps) 
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Clear the created secret from memory whenever the dialog is closed,
+  // regardless of which path triggered the close. This prevents the full API
+  // key from lingering in component state while the user navigates around
+  // the settings area (e.g. readable via React DevTools / error overlays).
+  useEffect(() => {
+    if (!open) setCreated(null);
+  }, [open]);
+
   const resetForm = () => {
     setName("");
     setScopes(["agent"]);
@@ -121,7 +129,22 @@ function GenerateDialog({ open, onOpenChange, onCreated }: GenerateDialogProps) 
       toast.error("Name is required");
       return;
     }
-    const days = customDays.trim() ? parseInt(customDays, 10) : expiresDays;
+    // When the user types into the custom days field, validate it strictly —
+    // silently falling back to "never expires" on bad input is a security
+    // footgun (e.g. "30days" → NaN → undefined → no expiry). Only treat the
+    // field as unset when the user left it blank.
+    const trimmedCustom = customDays.trim();
+    let days: number | null | undefined;
+    if (trimmedCustom) {
+      const parsed = parseInt(trimmedCustom, 10);
+      if (Number.isNaN(parsed) || parsed <= 0) {
+        toast.error("Enter a valid number of days");
+        return;
+      }
+      days = parsed;
+    } else {
+      days = expiresDays;
+    }
     setSubmitting(true);
     try {
       const res = await createApiKey({
@@ -318,6 +341,11 @@ function GenerateDialog({ open, onOpenChange, onCreated }: GenerateDialogProps) 
                   <Button
                     variant="outline"
                     onClick={() => {
+                      // Explicitly clear the secret from memory before the
+                      // dialog unmounts. The useEffect above is a fallback,
+                      // but this ensures the secret is gone immediately.
+                      setCreated(null);
+                      resetForm();
                       onCreated();
                     }}
                   />

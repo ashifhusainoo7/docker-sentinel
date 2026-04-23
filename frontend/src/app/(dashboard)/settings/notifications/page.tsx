@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -135,6 +135,13 @@ function ChannelCard({ config, index, onToggled }: ChannelCardProps) {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [enabled, setEnabled] = useState(config.is_enabled);
+
+  // Re-seed local state whenever the server-backed prop changes. Without this,
+  // an optimistic rollback that disagrees with the next refresh (e.g. server
+  // actually persisted the new value) leaves the UI stuck on stale state.
+  useEffect(() => {
+    setEnabled(config.is_enabled);
+  }, [config.is_enabled]);
 
   const handleToggle = async (next: boolean) => {
     setSaving(true);
