@@ -1,9 +1,9 @@
 # DockerSentinel — Work Tracker
 
-> **Last updated:** 2026-04-23
-> **Current phase:** End-to-end user-visible pipeline live. Crashes on a registered Docker host flow through the full loop: detect → LLM-analyze (with Qdrant cache) → conditionally restart → Slack + Email notifications → persist to DB. Phase 2 remainder (Twilio voice, dashboard AI summary) and frontend wiring are the next open scope.
+> **Last updated:** 2026-04-24
+> **Current phase:** Full-stack product. Crashes on a registered Docker host flow through the full loop: detect → LLM-analyze (with Qdrant cache) → conditionally restart → Slack + Email notifications → persist to DB. **Frontend completely redesigned** with AI-aesthetic dark theme, Framer Motion micro-interactions, and live WebSocket feed. Dashboard aggregate endpoints live. Remaining scope: Twilio voice, observability polish, agent container.
 
-**Test suite:** 109 tests passing (107 unit + 2 schema).
+**Test suite:** 153 tests passing (142 prior + 8 dashboard router + 3 ws-token).
 
 **Phase scoreboard:**
 
@@ -13,9 +13,10 @@
 | 2 — Intelligence + notifications | #7 Fix Agent, #8 SlackAgent, #9 EmailAgent, #12 notify_slack, #13 send_email | ✅ Shipped |
 | 2 — Deferred | #10 CallAgent / #14 make_call (Twilio), #11 DashboardAgent | Pending |
 | 3 — RAG memory | #15 find_similar, #16 store (Qdrant + fastembed) | ✅ Shipped |
-| 4 — Auth & API completions | #17–22 (OAuth flows, host containers, member invite, notification test) | Skeleton only |
-| 5 — Dashboard AI | #23–25 (summary, metrics, timeline endpoints) | Skeleton only |
+| 4 — Auth & API completions | #17 Google OAuth ✅; #19–22 host containers, member invite, notification test | Partially shipped |
+| 5 — Dashboard AI | #23–25 (summary, metrics, timeline endpoints) | ✅ Shipped (SQL aggregates; AI summary composed client-side) |
 | 6 — Agent container | #26 (customer-host agent via WebSocket) | Skeleton only |
+| 7 — Frontend redesign | Full bug-fix + visual polish with live data across 11 pages | ✅ Shipped |
 
 ---
 
@@ -268,6 +269,68 @@ Standalone agent for customer-hosted Docker environments.
   - **CallAgent + Twilio (items #10, #14)** — voice escalation.
   - **Observability & metrics** — Prometheus counters for notifications, LLM failures, auth events.
   - **Agent container (Phase 6 item #26)** — customer-hosted agent via WebSocket.
+
+### 2026-04-24 (Frontend redesign + backend gap-fill)
+- **Status:** ✅ **Phase 5 items #23, #24, #25 shipped** (dashboard aggregate endpoints). ✅ **Frontend completely redesigned** on `feat/frontend-redesign` branch — AI-aesthetic dark-first theme, Framer Motion micro-interactions, Recharts, live WebSocket feed, 11 pages rebuilt from bare placeholders into production-grade UI. Phase 4 item #22 (`test_notification`) surfaced in UI but backend is still pre-existing.
+- **What was done (backend):**
+  - `src/api/routers/dashboard.py` — replaced all three `NotImplementedError`s with real tenant-scoped SQL aggregations over `crash_events`:
+    - `/summary` → crashes_24h / restarts_24h / cache_hit_rate / active_hosts.
+    - `/metrics?period=24h|7d|30d` → MTTR (with period-over-period delta), severity/category breakdowns.
+    - `/timeline?period=...` → Python-side gap-filled hourly/daily bucket series.
+  - `src/schemas/dashboard.py` — new Pydantic response models (`DashboardSummary`, `DashboardMetrics`, `DashboardTimeline`, `TimelinePoint`).
+  - `POST /api/v1/auth/ws-token` — short-lived (60s) WS-type JWT minted from the authenticated cookie; used by the frontend since cookies don't flow reliably to the WebSocket handshake.
+  - 8 new dashboard router tests + 3 new ws-token tests. Total **153 tests passing**.
+- **What was done (frontend — feat/frontend-redesign branch, 16 commits):**
+  - **Design system:** dark-first OKLch palette (`globals.css`), Geist Mono via `next/font/google`, next-themes with `defaultTheme="dark"`, Sonner toaster, new severity/gradient/glow tokens. **Dep bumps:** `lucide-react ^0.474.0` (was pre-rename 1.8.0 — nav icons couldn't import), `framer-motion ^11.18.0`, `recharts ^2.15.0`, `date-fns ^4.1.0`.
+  - **Motion primitives** in `components/ui/motion/`: `<Shimmer>` (skeleton sweep), `<GlowCard>` (mouse-follow radial spotlight, tints cyan/violet/magenta), `<AnimatedGradient>` (gradient-clip text), `<PulseDot>` (live/connecting/offline dot).
+  - **App shell:** `<MeshBackground>` (drifting radial blobs + grid), `<PageTransition>` (AnimatePresence fade-slide on pathname change), `<Sidebar>` (AnimatedGradient wordmark + shared-element nav glow via `layoutId`), `<Header>` (breadcrumb + PulseDot WS status + theme toggle + avatar dropdown with `HeaderSkeleton` during auth load).
+  - **Bug fixes (all from pre-redesign audit):**
+    - **Bug 1** — `src/proxy.ts` (renamed from `middleware.ts` per Next 16): auth gate redirects unauth dashboard routes → `/login`, bounces authed `/login` → `/`.
+    - **Bug 2** — `nav-links.tsx` now imports Lucide icons as components (was storing string literal names — nothing rendered).
+    - **Bug 3** — `use-websocket.ts` rewritten as module-level singleton with refCount sharing, token-refresh every 55s, heartbeat every 25s, exponential-backoff reconnect (1s→30s cap), `POST /auth/ws-token` → `?token=` URL param.
+    - **Bug 4** — `/crashes/[id]` uses `use(params)` (Next 16 made `params` a Promise).
+    - **Bug 5** — `HeaderSkeleton` renders while `useAuth().loading`.
+    - **Bug 6** — `useAuth` now exposes `error` field; `getMe()` in `lib/auth.ts` returns `null` on 401, throws on 5xx.
+    - **Bug 7** — `useCrashes` wired into `/crashes` page (was unused).
+  - **Pages redesigned (11 total):**
+    - `/login` — glass card, mesh bg, AnimatedGradient wordmark, Google button with violet glow hover.
+    - `/callback` — three counter-rotating orbital rings.
+    - `/` dashboard — 4 `<GlowCard>` metric tiles with Framer Motion count-up + stagger, AI Summary card (narrative composed from live metrics), Recharts `<AreaChart>` timeline with brand-gradient fills, period selector (24h/7d/30d) with shared `layoutId` glow pill, loading skeleton, error retry.
+    - `/crashes` — filter bar, Shadcn Table with severity badges + cache/status indicators, **live WebSocket prepends new crashes with severity flash animation** (filter-guarded, per-id timer Map prevents burst leak), client-side search.
+    - `/crashes/[id]` — shared-element hero via `layoutId="crash-hero-${id}"`, 4-tab layout (Logs / AI Analysis / Timeline / Actions), Geist Mono metadata sidecar, 404 empty state.
+    - `/hosts` — grid of `<GlowCard>`s with `<PulseDot>`, deterministic per-host sparklines (FNV-1a hashed seed), connection-mode badges, test + delete actions with confirm dialog.
+    - `/hosts/new` — 3-step animated wizard (mode → details → review) with progress bar, `AnimatePresence` step transitions.
+    - `/settings` hub — 4-GlowCard grid linking to sub-sections.
+    - `/settings/api-keys` — table + two-phase generate dialog (form → copy-once key view with pulse-cyan glow + clipboard). Secret cleared on dialog close.
+    - `/settings/members` — list with gradient-avatar initials + invite dialog (backend still 501, body shows coming-soon EmptyState).
+    - `/settings/notifications` — per-channel GlowCard with enable toggle + test button, optimistic toggle with rollback + sync-effect.
+    - `/settings/escalations` — rule list + side-Sheet create/edit form, condition summary rendered as readable sentence.
+    - `/onboarding` — 3-step wizard (Add Host → Configure Alerts → You're Ready) using real `createHost` + `updateNotificationConfig` mutations; success hero with Go-to-Dashboard + Copy-test-crash-command CTAs.
+    - `/not-found` + `/error` — polished glass boundaries with MeshBackground.
+  - **New hooks:** `use-dashboard` (summary/metrics/timeline), `use-crash` (single fetch), `use-docker-hosts`, `use-api-keys`, `use-members`, `use-notification-configs`, `use-escalation-rules`. All use **generation-counter pattern** to guard against out-of-order refresh responses (caught in T10 review and applied to all subsequent hooks).
+- **Review / quality cycle:** Followed superpowers subagent-driven-development for every task. Each task went through spec-compliance review + code-quality review, with a fix commit per review finding. Notable fixes:
+  - Dashboard: surfaced metrics/timeline errors that were silently swallowed; aligned Crashes tile label/value/delta when period changes.
+  - Crashes: filter-guarded WS prepend; per-id Map for flash timers (burst-safe); layoutId collision rename.
+  - Hosts: generation-counter race fix on `useDockerHosts`.
+  - Settings: API-key secret cleared explicitly on close; child-card state sync effects; Sheet close-while-saving guard; custom-days validation before POST.
+- **Known deferred items:**
+  - Full WCAG audit (beyond Shadcn/base-ui's built-in focus + aria).
+  - Light-mode polish (exists and functional, dark is primary).
+  - Virtualized tables (>1000 rows).
+  - Global cmd-k search (slot reserved in header; implementation later).
+  - Drag-to-reorder on escalation rules (Sheet editor handles single rule; ordering later).
+  - `invite_member` backend is still 501 — UI shell built, mutation returns coming-soon EmptyState.
+  - `list_containers` backend — no page consumes it yet.
+  - Frontend test harness (Vitest / Playwright) — manual visual verification only so far.
+  - Host-card sparklines are deterministic-placeholder (seeded by `host.id`); real per-host crash-series endpoint is future work.
+  - `CrashEvent.llm_provider` and `llm_latency_ms` still NULL in rows produced before the columns were wired up.
+- **Pick up from here:** Good candidates:
+  - **CallAgent + Twilio (items #10, #14)** — voice escalation + `/settings/notifications` voice card is ready to light up.
+  - **Observability & metrics** — Prometheus counters, populate LLM provider/latency columns, tune Qdrant threshold.
+  - **Real per-host sparkline endpoint** — swap deterministic placeholder for `GET /api/v1/hosts/{id}/recent-activity`.
+  - **`invite_member` implementation (Phase 4 item #19)** — email invitation + pending-user record. UI ready.
+  - **Agent container (Phase 6 item #26)** — customer-hosted agent via WebSocket. WS token endpoint + `use-websocket` singleton are ready for agent-side consumption.
+  - **Frontend test harness** — Vitest + React Testing Library for hooks, Playwright for critical flows (login, trigger crash, view in dashboard).
 
 ---
 
