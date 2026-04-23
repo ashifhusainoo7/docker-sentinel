@@ -15,14 +15,16 @@ def _make_memory_with_mocks(hit_payload=None, raise_on_search=False, raise_on_up
     mem._ready = True
 
     if raise_on_search:
-        mem._client.search.side_effect = RuntimeError("qdrant down")
+        mem._client.query_points.side_effect = RuntimeError("qdrant down")
     else:
+        response = MagicMock()
         if hit_payload is not None:
             hit = MagicMock()
             hit.payload = hit_payload
-            mem._client.search.return_value = [hit]
+            response.points = [hit]
         else:
-            mem._client.search.return_value = []
+            response.points = []
+        mem._client.query_points.return_value = response
 
     if raise_on_upsert:
         mem._client.upsert.side_effect = RuntimeError("qdrant down")
@@ -48,7 +50,10 @@ async def test_find_similar_returns_payload_on_hit():
 async def test_find_similar_applies_tenant_filter():
     mem = _make_memory_with_mocks()
     await mem.find_similar("x", tenant_id="tenant-42")
-    call = mem._client.search.call_args
+    # Asserts the Qdrant API used is query_points (not deprecated search()).
+    mem._client.query_points.assert_called_once()
+    mem._client.search.assert_not_called()
+    call = mem._client.query_points.call_args
     query_filter = call.kwargs["query_filter"]
     assert isinstance(query_filter, Filter)
     assert len(query_filter.must) == 1
@@ -62,10 +67,10 @@ async def test_find_similar_applies_tenant_filter():
 async def test_find_similar_threshold_default_and_override():
     mem = _make_memory_with_mocks()
     await mem.find_similar("x", tenant_id="t1")
-    assert mem._client.search.call_args.kwargs["score_threshold"] == 0.92
+    assert mem._client.query_points.call_args.kwargs["score_threshold"] == 0.92
 
     await mem.find_similar("x", tenant_id="t1", threshold=0.80)
-    assert mem._client.search.call_args.kwargs["score_threshold"] == 0.80
+    assert mem._client.query_points.call_args.kwargs["score_threshold"] == 0.80
 
 
 @pytest.mark.asyncio

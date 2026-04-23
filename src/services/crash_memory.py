@@ -84,10 +84,10 @@ class CrashMemory:
         try:
             await asyncio.to_thread(self._init)
             vector = await asyncio.to_thread(self._embed, text)
-            results = await asyncio.to_thread(
-                self._client.search,
+            response = await asyncio.to_thread(
+                self._client.query_points,
                 collection_name=self.COLLECTION,
-                query_vector=vector,
+                query=vector,
                 query_filter=Filter(
                     must=[FieldCondition(
                         key="tenant_id",
@@ -101,9 +101,10 @@ class CrashMemory:
             logger.exception("Qdrant find_similar failed; treating as cache miss")
             return None
 
-        if not results:
+        points = response.points
+        if not points:
             return None
-        return results[0].payload.get("analysis")
+        return points[0].payload.get("analysis")
 
     async def store(
         self,
