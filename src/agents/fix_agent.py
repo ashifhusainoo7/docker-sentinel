@@ -51,11 +51,13 @@ class FixAgent:
         ).with_structured_output(CrashAnalysis)
         return primary.with_fallbacks([fallback])
 
-    async def analyze(self, crash_event: dict) -> tuple[CrashAnalysis, bool]:
+    async def analyze(
+        self, crash_event: dict, tenant_id: str
+    ) -> tuple[CrashAnalysis, bool]:
         """Analyze a crash event. Returns (analysis, cache_hit)."""
-        logs = crash_event.get("logs") or ""
+        text = self._build_embedding_text(crash_event)
 
-        cached = await self._memory.find_similar(logs)
+        cached = await self._memory.find_similar(text, tenant_id)
         if cached is not None:
             return CrashAnalysis.model_validate(cached), True
 
@@ -67,11 +69,26 @@ class FixAgent:
             return _minimal_fallback(), False
 
         try:
-            await self._memory.store(logs, analysis.model_dump())
+            await self._memory.store(
+                text,
+                analysis.model_dump(),
+                tenant_id,
+                metadata={
+                    "image": crash_event.get("image"),
+                    "exit_code": crash_event.get("exit_code"),
+                },
+            )
         except Exception:
             logger.exception("Failed to store crash analysis in memory")
 
         return analysis, False
+
+    def _build_embedding_text(self, crash_event: dict) -> str:
+        """Build the cache key text: '<image> | exit=<code> | <logs>'."""
+        image = crash_event.get("image") or "<unknown>"
+        exit_code = crash_event.get("exit_code")
+        logs = crash_event.get("logs") or ""
+        return f"{image} | exit={exit_code} | {logs}"
 
 
 _agent_instance: FixAgent | None = None

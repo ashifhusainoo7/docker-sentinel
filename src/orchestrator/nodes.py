@@ -19,11 +19,13 @@ logger = logging.getLogger("sentinel.orchestrator")
 async def analyze_crash(state: CrashState) -> dict:
     """Node: call FixAgent to analyze the crash event.
 
-    Phase 2: real OpenAI call via FixAgent (with Qdrant stubbed).
-    Phase 3: Qdrant cache gates the LLM call.
+    Phase 3: tenant_id threaded through to CrashMemory for multi-tenant
+    cache isolation.
     """
     agent = get_fix_agent()
-    analysis, cache_hit = await agent.analyze(state["crash_event"])
+    analysis, cache_hit = await agent.analyze(
+        state["crash_event"], state["tenant_id"]
+    )
     return {
         "analysis": analysis.model_dump(),
         "cache_hit": cache_hit,
