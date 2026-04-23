@@ -87,8 +87,8 @@ OAuth flows and remaining API endpoints.
 
 | # | File | What to Implement | Priority |
 |---|------|-------------------|----------|
-| 17 | `src/api/routers/auth.py` | GitHub OAuth login + callback | **High** |
-| 18 | `src/api/routers/auth.py` | Google OAuth login + callback | **High** |
+| 17 | `src/api/routers/auth.py` | Google OAuth login + callback (Authlib OIDC + HttpOnly cookies) | ✅ **Done** |
+| 18 | `src/api/routers/auth.py` | GitHub OAuth login + callback | 🗑️ **Removed** (same pattern available if re-added) |
 | 19 | `src/api/routers/tenants.py` → `invite_member()` | Email invitation + pending user record | **Medium** |
 | 20 | `src/api/routers/docker_hosts.py` → `list_containers()` | Connect to Docker host, list containers | **Medium** |
 | 21 | `src/services/docker_host_service.py` → test connection | Docker SDK connection test | **Medium** |
@@ -238,6 +238,36 @@ Standalone agent for customer-hosted Docker environments.
   - **DashboardAgent (item #11)** + wire into a dashboard API endpoint — useful dashboard UI demo.
   - **Observability & metrics** — populate `llm_provider`/`llm_latency_ms` columns, add Prometheus counters for notification success/failure, tune the Qdrant threshold against real crash data.
   - **Frontend polish** — the Next.js dashboard is already scaffolded; wire it to the API and show live crashes, analyses, and notifications.
+
+### 2026-04-23 (Continued — Google OAuth)
+- **Status:** ✅ **Phase 4 item #17 shipped.** Google OIDC sign-in working end-to-end with production-grade cookie auth. GitHub routes removed.
+- **What was done:**
+  - Brainstormed + wrote design spec: `docs/superpowers/specs/2026-04-23-google-oauth-design.md`
+  - Wrote 10-task plan: `docs/superpowers/plans/2026-04-23-google-oauth.md`
+  - Added `itsdangerous` dep + `SessionMiddleware` (Starlette) for Authlib state+nonce storage
+  - `src/services/oauth_client.py` — module-level Authlib `OAuth` registry with Google OIDC discovery URL
+  - `src/services/auth_cookies.py` — centralized `HttpOnly` / `SameSite=Lax` cookie helpers; refresh-token scoped to `/api/v1/auth`; `Secure` only in production
+  - `get_current_user` now reads `access_token` cookie first, falls back to `Authorization: Bearer` for programmatic access; raises **401** (not 403)
+  - Rewrote `auth.py` router: Google `/google` + `/google/callback` (Authlib-handled state + nonce + JWT verification), cookie-based `/refresh` (rotates both tokens) + `/logout` (clears cookies), `/me` now cookie-based
+  - Removed GitHub routes + `TokenRefresh` schema
+  - Frontend: Google-only login with brand "G" logo SVG, simplified callback page (no token-from-URL parsing), cookie-based API client with transparent 401→refresh→retry, `useAuth` hook calls `/me` on mount
+  - Updated legacy `tests/test_api/` to expect 401 instead of 403
+  - 20 new unit tests (4 cookies + 2 oauth_client + 5 deps + 9 router). 142 tests total.
+  - **Note:** `use-websocket.ts` no longer passes a token query param — WebSocket cookie auth will need attention when dashboard wiring lands.
+- **Known deferred items:**
+  - Refresh-token blacklist + reuse detection.
+  - Email whitelist (anyone with a Google account can auto-provision a tenant).
+  - Logout-everywhere (invalidating all refresh tokens for a user).
+  - Prometheus counters for auth success/failure.
+  - PKCE extension (overkill for confidential client with server-side secret).
+  - Production OAuth consent screen publishing + domain-verified redirect URIs.
+  - WebSocket auth (cookies flow on handshake, but the current `use-websocket.ts` removed token handling — verify on dashboard-wiring session).
+- **Pre-work for next user who runs the app:** follow the Google Cloud Console setup in `docs/superpowers/specs/2026-04-23-google-oauth-design.md` §Configuration. Populate `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` in `.env`. Add `http://localhost:8000/api/v1/auth/google/callback` to the OAuth client's authorized redirect URIs.
+- **Pick up from here:** Good candidates for the next session:
+  - **Dashboard wiring (Phase 5 items #23–25)** — `/api/v1/dashboard/{summary,metrics,timeline}` endpoints + Next.js pages consuming live crash data. Resolves the WebSocket auth question too.
+  - **CallAgent + Twilio (items #10, #14)** — voice escalation.
+  - **Observability & metrics** — Prometheus counters for notifications, LLM failures, auth events.
+  - **Agent container (Phase 6 item #26)** — customer-hosted agent via WebSocket.
 
 ---
 
