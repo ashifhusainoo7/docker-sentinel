@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.settings import settings
 from src.api.deps import get_current_user, get_db
 from src.models.user import User
-from src.schemas.auth import MeResponse, UserResponse
+from src.schemas.auth import MeResponse, UserResponse, WsTokenResponse
 from src.services import auth_service
 from src.services.auth_cookies import (
     REFRESH_COOKIE,
@@ -88,6 +88,13 @@ async def logout(response: Response):
     """Clear both auth cookies. Idempotent."""
     clear_auth_cookies(response)
     return {"status": "ok"}
+
+
+@router.post("/ws-token", response_model=WsTokenResponse)
+async def get_ws_token(user: User = Depends(get_current_user)) -> WsTokenResponse:
+    """Mint a short-lived (60s) WebSocket-only JWT for the authenticated user."""
+    token = auth_service.create_ws_token(user.id, user.tenant_id)
+    return WsTokenResponse(token=token, expires_in=60)
 
 
 @router.get("/me", response_model=MeResponse)

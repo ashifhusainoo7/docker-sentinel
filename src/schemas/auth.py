@@ -4,6 +4,11 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr
 
 
+class WsTokenResponse(BaseModel):
+    token: str
+    expires_in: int
+
+
 class Token(BaseModel):
     access_token: str
     refresh_token: str

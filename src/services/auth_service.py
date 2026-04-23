@@ -23,6 +23,19 @@ def create_access_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
+def create_ws_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=1)
+    payload = {
+        "sub": str(user_id),
+        "tenant_id": str(tenant_id),
+        "iat": now,
+        "exp": expire,
+        "type": "ws",
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
 def create_refresh_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.jwt_refresh_token_expire_days
