@@ -171,3 +171,54 @@ def test_init_is_idempotent():
         assert qc.call_count == 1
         assert te.call_count == 1
         assert mem._ready is True
+
+
+def test_init_is_thread_safe_under_concurrent_callers():
+    """Concurrent threads entering _init should not double-build the client."""
+    import threading as _threading
+
+    with patch("src.services.crash_memory.QdrantClient") as qc, \
+         patch("src.services.crash_memory.TextEmbedding") as te:
+        fake_client = MagicMock()
+        fake_client.get_collections.return_value = MagicMock(collections=[])
+        qc.return_value = fake_client
+        te.return_value = MagicMock()
+
+        mem = CrashMemory()
+        barrier = _threading.Barrier(8)
+
+        def runner():
+            barrier.wait()  # release all threads simultaneously
+            mem._init()
+
+        threads = [_threading.Thread(target=runner) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert qc.call_count == 1
+        assert te.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_store_drops_reserved_metadata_keys():
+    """metadata must not be allowed to overwrite tenant_id, analysis, or created_at."""
+    mem = _make_memory_with_mocks()
+    analysis = {"root_cause": "OOM"}
+    await mem.store(
+        "x",
+        analysis=analysis,
+        tenant_id="tenant-42",
+        metadata={
+            "tenant_id": "attacker",       # reserved — must be dropped
+            "analysis": {"root_cause": "injected"},  # reserved — must be dropped
+            "created_at": "1999-01-01",    # reserved — must be dropped
+            "image": "nginx:1.25",         # allowed
+        },
+    )
+    point = mem._client.upsert.call_args.kwargs["points"][0]
+    assert point.payload["tenant_id"] == "tenant-42"
+    assert point.payload["analysis"] == analysis
+    assert point.payload["created_at"] != "1999-01-01"
+    assert point.payload["image"] == "nginx:1.25"

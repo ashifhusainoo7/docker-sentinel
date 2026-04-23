@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 import uuid
 from datetime import datetime, timezone
 
@@ -18,6 +19,8 @@ from config.settings import settings
 
 logger = logging.getLogger("sentinel.services.crash_memory")
 
+_RESERVED_PAYLOAD_KEYS = frozenset({"tenant_id", "analysis", "created_at"})
+
 
 class CrashMemory:
     """Qdrant-backed semantic dedup for crash events.
@@ -35,18 +38,26 @@ class CrashMemory:
         self._client: QdrantClient | None = None
         self._embedder: TextEmbedding | None = None
         self._ready: bool = False
+        self._init_lock = threading.Lock()
 
     def _init(self) -> None:
-        """Lazy-init: connect, load embedder, ensure collection exists."""
+        """Lazy-init: connect, load embedder, ensure collection exists.
+
+        Thread-safe — concurrent callers inside asyncio.to_thread serialize on
+        _init_lock so the Qdrant client and fastembed model are built once.
+        """
         if self._ready:
             return
-        self._client = QdrantClient(
-            host=settings.qdrant_host,
-            port=settings.qdrant_port,
-        )
-        self._embedder = TextEmbedding(model_name=self.MODEL_NAME)
-        self._ensure_collection()
-        self._ready = True
+        with self._init_lock:
+            if self._ready:
+                return
+            self._client = QdrantClient(
+                host=settings.qdrant_host,
+                port=settings.qdrant_port,
+            )
+            self._embedder = TextEmbedding(model_name=self.MODEL_NAME)
+            self._ensure_collection()
+            self._ready = True
 
     def _ensure_collection(self) -> None:
         """Create the collection if it doesn't exist. Idempotent."""
@@ -110,7 +121,19 @@ class CrashMemory:
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
             if metadata:
-                payload.update(metadata)
+                # Drop reserved keys so metadata can never overwrite tenant
+                # isolation / analysis / created_at fields.
+                safe = {
+                    k: v for k, v in metadata.items()
+                    if k not in _RESERVED_PAYLOAD_KEYS
+                }
+                if len(safe) < len(metadata):
+                    dropped = set(metadata) & _RESERVED_PAYLOAD_KEYS
+                    logger.warning(
+                        "CrashMemory.store: dropped reserved metadata keys: %s",
+                        sorted(dropped),
+                    )
+                payload.update(safe)
             await asyncio.to_thread(
                 self._client.upsert,
                 collection_name=self.COLLECTION,
