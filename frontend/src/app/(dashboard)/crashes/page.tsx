@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -194,8 +194,11 @@ export default function CrashesPage() {
   const [severity, setSeverity] = useState<string>("");
   const [category, setCategory] = useState<string>("");
   const [search, setSearch] = useState<string>("");
-  // Flash-id tracking: new crashes arriving via WS highlight for ~1.2s.
-  const [flashIds, setFlashIds] = useState<string[]>([]);
+  // Flash-id tracking: new crashes arriving via WS highlight for ~1.4s.
+  const [flashIds, setFlashIds] = useState<Set<string>>(() => new Set());
+  // Per-id timer handles so rapid bursts of WS crashes don't cancel each
+  // other's clear-timers (which would leave early rows permanently flashing).
+  const flashTimersRef = useRef<Map<string, number>>(new Map());
 
   const { crashes, loading, error, refresh, prependCrash } = useCrashes({
     severity: severity || undefined,
@@ -211,20 +214,55 @@ export default function CrashesPage() {
   useEffect(() => {
     if (lastMessage?.type !== "crash" || !lastMessage.crash) return;
     const c = lastMessage.crash;
+
+    // Respect the active severity/category filters. Empty string is the
+    // "all" sentinel (same semantics as the fetch call). Case-insensitive
+    // compare to match the rest of the page's severity handling.
+    const sevFilter = severity.toLowerCase();
+    const catFilter = category.toLowerCase();
+    const crashSev = (c.severity ?? "").toLowerCase();
+    const crashCat = (c.category ?? "").toLowerCase();
+    if (sevFilter && crashSev !== sevFilter) return;
+    if (catFilter && crashCat !== catFilter) return;
+
     prependCrash(c);
-    // Schedule state updates out of the synchronous effect body so we don't
-    // trip the react-hooks/set-state-in-effect lint.
-    const addHandle = setTimeout(() => {
-      setFlashIds((prev) => (prev.includes(c.id) ? prev : [...prev, c.id]));
-    }, 0);
-    const clearHandle = setTimeout(() => {
-      setFlashIds((prev) => prev.filter((x) => x !== c.id));
+
+    // Cancel any prior timer for this id (e.g. the same crash re-inserted).
+    const timers = flashTimersRef.current;
+    const existing = timers.get(c.id);
+    if (existing !== undefined) {
+      clearTimeout(existing);
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFlashIds((ids) => {
+      const n = new Set(ids);
+      n.add(c.id);
+      return n;
+    });
+
+    const handle = window.setTimeout(() => {
+      setFlashIds((ids) => {
+        const n = new Set(ids);
+        n.delete(c.id);
+        return n;
+      });
+      flashTimersRef.current.delete(c.id);
     }, 1400);
+    timers.set(c.id, handle);
+  }, [lastMessage, prependCrash, severity, category]);
+
+  // Clear all pending flash timers on unmount so we don't leak them or
+  // setState on an unmounted component.
+  useEffect(() => {
+    const timers = flashTimersRef.current;
     return () => {
-      clearTimeout(addHandle);
-      clearTimeout(clearHandle);
+      for (const handle of timers.values()) {
+        clearTimeout(handle);
+      }
+      timers.clear();
     };
-  }, [lastMessage, prependCrash]);
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -349,7 +387,7 @@ export default function CrashesPage() {
             <TableBody>
               <AnimatePresence initial={false}>
                 {filtered.map((crash) => {
-                  const isFlashing = flashIds.includes(crash.id);
+                  const isFlashing = flashIds.has(crash.id);
                   const sevTint = severityToken(crash.severity);
                   let timeAgo = "";
                   try {

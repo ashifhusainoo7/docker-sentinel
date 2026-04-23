@@ -350,19 +350,25 @@ function TimelineTab({ crash }: { crash: CrashEvent }) {
       complete: crash.root_cause !== null || crash.cache_hit,
       tint: "violet",
     },
-    {
-      label: "Restart attempted",
-      description: crash.restart_attempted
-        ? crash.restart_success === true
-          ? "Container restarted successfully."
-          : crash.restart_success === false
-            ? "Restart attempt failed."
-            : "Restart in progress…"
-        : "No restart attempted.",
-      timestamp: crash.restart_attempted ? crash.created_at : null,
-      complete: crash.restart_attempted,
-      tint: crash.restart_success === false ? "rose" : "amber",
-    },
+    // Restart step is only rendered when a restart was actually attempted.
+    ...(crash.restart_attempted
+      ? [
+          {
+            label: "Restart attempted",
+            description:
+              crash.restart_success === true
+                ? "Container restarted successfully."
+                : crash.restart_success === false
+                  ? "Restart attempt failed."
+                  : "Restart in progress…",
+            timestamp: crash.created_at,
+            complete: true,
+            tint: (crash.restart_success === false ? "rose" : "amber") as
+              | "rose"
+              | "amber",
+          } satisfies TimelineStep,
+        ]
+      : []),
     {
       label: "Notifications sent",
       description: [
@@ -492,7 +498,7 @@ function ActionsTab() {
 function Hero({ crash }: { crash: CrashEvent }) {
   return (
     <motion.div
-      layoutId={`crash-${crash.id}`}
+      layoutId={`crash-hero-${crash.id}`}
       className="rounded-2xl border border-border/50 bg-card/60 p-6 backdrop-blur"
     >
       <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
