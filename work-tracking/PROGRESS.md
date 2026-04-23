@@ -1,7 +1,21 @@
 # DockerSentinel — Work Tracker
 
-> **Last updated:** 2026-04-15
-> **Current phase:** Skeleton complete, moving to agent implementation
+> **Last updated:** 2026-04-23
+> **Current phase:** End-to-end user-visible pipeline live. Crashes on a registered Docker host flow through the full loop: detect → LLM-analyze (with Qdrant cache) → conditionally restart → Slack + Email notifications → persist to DB. Phase 2 remainder (Twilio voice, dashboard AI summary) and frontend wiring are the next open scope.
+
+**Test suite:** 109 tests passing (107 unit + 2 schema).
+
+**Phase scoreboard:**
+
+| Phase | Items | Status |
+|---|---|---|
+| 1 — Core pipeline | #1–6 (listener, manager, worker, analyze_crash, attempt_restart, log_event) | ✅ Shipped |
+| 2 — Intelligence + notifications | #7 Fix Agent, #8 SlackAgent, #9 EmailAgent, #12 notify_slack, #13 send_email | ✅ Shipped |
+| 2 — Deferred | #10 CallAgent / #14 make_call (Twilio), #11 DashboardAgent | Pending |
+| 3 — RAG memory | #15 find_similar, #16 store (Qdrant + fastembed) | ✅ Shipped |
+| 4 — Auth & API completions | #17–22 (OAuth flows, host containers, member invite, notification test) | Skeleton only |
+| 5 — Dashboard AI | #23–25 (summary, metrics, timeline endpoints) | Skeleton only |
+| 6 — Agent container | #26 (customer-host agent via WebSocket) | Skeleton only |
 
 ---
 
