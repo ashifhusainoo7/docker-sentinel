@@ -52,12 +52,12 @@ Once the pipeline works, add intelligence and alerting.
 | # | File | What to Implement | Priority |
 |---|------|-------------------|----------|
 | 7 | `src/agents/fix_agent.py` | LLM crash analysis (OpenAI `gpt-4o-mini` primary + `gpt-4o` fallback, structured output) | ✅ **Done** (Qdrant cache uses Phase 2 stubs — Phase 3 swaps in real Qdrant) |
-| 8 | `src/agents/slack_agent.py` | Slack webhook notification (Block Kit format) | **High** |
-| 9 | `src/agents/email_agent.py` | Email notification (Jinja2 template + SMTP) | **High** |
+| 8 | `src/agents/slack_agent.py` | Slack webhook notification (Block Kit format) | ✅ **Done** |
+| 9 | `src/agents/email_agent.py` | Email notification (Jinja2 template + Gmail SMTP via aiosmtplib) | ✅ **Done** |
 | 10 | `src/agents/call_agent.py` | Twilio voice call escalation (LLM script generation + TwiML) | **Medium** |
 | 11 | `src/agents/dashboard_agent.py` | AI summary generation for dashboard | **Medium** |
-| 12 | `src/orchestrator/nodes.py` → `notify_slack` | Wire Slack agent into orchestrator | **High** |
-| 13 | `src/orchestrator/nodes.py` → `send_email` | Wire Email agent into orchestrator | **High** |
+| 12 | `src/orchestrator/nodes.py` → `notify_slack` | Wire Slack agent into orchestrator | ✅ **Done** |
+| 13 | `src/orchestrator/nodes.py` → `send_email` | Wire Email agent into orchestrator | ✅ **Done** |
 | 14 | `src/orchestrator/nodes.py` → `make_call` | Wire Call agent into orchestrator | **Medium** |
 
 ### Phase 3 — RAG & Memory
@@ -195,6 +195,35 @@ Standalone agent for customer-hosted Docker environments.
   - `model_version` not in payload — if Fix Agent prompts/models change, old cache entries remain.
   - Pre-warming the fastembed model in Docker image build for faster first-crash latency.
 - **Pick up from here:** **Phase 2 notification agents (items #8–11)** — SlackAgent, EmailAgent, CallAgent, DashboardAgent. Unlocks the `restart_likely_fixes=False → notify_slack` path currently routed to `log`. User-visible value (a real Slack message on crash is a great demo). After notifications: observability/metrics or multi-worker scaling.
+
+### 2026-04-23 (Continued — notification agents)
+- **Status:** ✅ **Phase 2 items #8, #9, #12, #13 shipped.** Slack + Email notifications live. Restored False → notify_slack edges in the orchestrator graph.
+- **What was done:**
+  - Brainstormed + wrote design spec: `docs/superpowers/specs/2026-04-23-notification-agents-design.md`
+  - Wrote 9-task plan: `docs/superpowers/plans/2026-04-23-notification-agents.md`
+  - Added `aiosmtplib>=3.0.0` dep; new SMTP settings (`smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`)
+  - `SlackAgent.notify` — httpx POST to per-tenant webhook, Block Kit payload, severity→emoji mapping, truncates to 3 suggestions
+  - `EmailAgent.send` — Jinja2 renders `crash_email.html`, aiosmtplib sends over Gmail STARTTLS; template path anchored to `__file__` (CWD-safe)
+  - `get_notification_config(tenant_id, channel)` helper in `notification_service.py` — returns enabled config row or None
+  - `notify_slack` / `send_email` orchestrator nodes — per-tenant config lookup, outer exception guard, graph never dies in a notification node
+  - Restored `should_restart` False → `notify_slack`; `check_restart_result` non-True → `notify_slack`
+  - Updated graph mappings: `{"attempt_restart": "restart", "notify_slack": "slack"}` on `analyze`; `{"log": "log", "notify_slack": "slack"}` on `restart`
+  - Made `make_call` a logged no-op (was `NotImplementedError`) so the multi-crash path is safe if someone later starts populating `recent_crash_count`
+  - 31 new unit tests (8 Slack + 6 Email + 5 service helper + 10 node + 2 E2E); 107 tests total
+  - One review-fix cycle: template-path CWD bug + make_call NotImplementedError latent bug
+- **Known deferred items:**
+  - **CallAgent + Twilio** (item #10) + `make_call` node (#14) — voice escalation. Requires Twilio trial + phone number.
+  - **DashboardAgent** (item #11) — separate dashboard-UI concern, not crash-notification.
+  - **Retry / backoff** on Slack 429 and SMTP timeouts.
+  - **Multi-recipient email** — per-tenant single `to` address only.
+  - **Container-owner routing via Docker labels** — listener doesn't capture labels yet.
+  - **Rich Slack interactivity** (buttons, threads).
+  - **Notification deduplication** — every crash notifies even if Qdrant cache already saw it.
+- **Pick up from here:** Good candidates for the next session:
+  - **CallAgent + make_call wiring (items #10, #14)** — closes out Phase 2's escalation path. Twilio trial account required.
+  - **DashboardAgent (item #11)** + wire into a dashboard API endpoint — useful dashboard UI demo.
+  - **Observability & metrics** — populate `llm_provider`/`llm_latency_ms` columns, add Prometheus counters for notification success/failure, tune the Qdrant threshold against real crash data.
+  - **Frontend polish** — the Next.js dashboard is already scaffolded; wire it to the API and show live crashes, analyses, and notifications.
 
 ---
 

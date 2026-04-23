@@ -72,6 +72,9 @@
             {% if event.logs %}
             <div class="field">
                 <div class="label">Last Log Lines</div>
+                {# Autoescape is active; do NOT apply `| safe` to event.logs —
+                   container log content is untrusted and may contain HTML/
+                   XML fragments that would render as live markup. #}
                 <div class="logs">{{ event.logs }}</div>
             </div>
             {% endif %}

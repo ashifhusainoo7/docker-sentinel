@@ -72,3 +72,134 @@ async def test_workflow_happy_path_invokes_all_three_nodes(initial_state, host_i
     assert len(update_calls) >= 1
     # session.commit was awaited by log_event
     session.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_workflow_routes_non_restart_analysis_through_notifications(
+    initial_state, host_id
+):
+    """restart_likely_fixes=False → slack → email → log."""
+    from src.schemas.crash_event import CrashAnalysis
+
+    non_restart = CrashAnalysis(
+        restart_likely_fixes=False,
+        root_cause="Port already in use",
+        severity="high",
+        category="config_error",
+        suggestions=["Change port", "Kill other process"],
+        confidence=0.88,
+    )
+    fake_agent = MagicMock()
+    fake_agent.analyze = AsyncMock(return_value=(non_restart, False))
+
+    slack_conf = MagicMock()
+    slack_conf.is_enabled = True
+    slack_conf.config = {"webhook_url": "https://hooks.test/x"}
+    email_conf = MagicMock()
+    email_conf.is_enabled = True
+    email_conf.config = {"to": "dev@test.com"}
+
+    async def fake_get_config(_factory, _tenant_id, channel):
+        return slack_conf if channel == "slack" else email_conf
+
+    session = AsyncMock()
+    session.execute = AsyncMock()
+    session.commit = AsyncMock()
+    session.__aenter__.return_value = session
+    session.__aexit__.return_value = None
+
+    fake_slack = MagicMock()
+    fake_slack.notify = AsyncMock(return_value=True)
+    fake_email = MagicMock()
+    fake_email.send = AsyncMock(return_value=True)
+
+    with patch("src.orchestrator.nodes.async_session_factory", return_value=session), \
+         patch("src.orchestrator.nodes.get_fix_agent", return_value=fake_agent), \
+         patch("src.orchestrator.nodes.get_notification_config", side_effect=fake_get_config), \
+         patch("src.orchestrator.nodes.SlackAgent", return_value=fake_slack), \
+         patch("src.orchestrator.nodes.EmailAgent", return_value=fake_email):
+        final_state = await crash_workflow.ainvoke(initial_state)
+
+    # analyze ran
+    assert final_state["analysis"]["restart_likely_fixes"] is False
+    # restart was NOT attempted (routed around)
+    assert final_state.get("restart_attempted", False) is False
+    # notifications both fired
+    fake_slack.notify.assert_awaited_once()
+    fake_email.send.assert_awaited_once()
+    assert final_state["slack_sent"] is True
+    assert final_state["email_sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_workflow_routes_failed_restart_through_notifications(
+    initial_state, host_id
+):
+    """restart_success=False after attempt → slack → email → log."""
+    from src.schemas.crash_event import CrashAnalysis
+
+    restart_yes = CrashAnalysis(
+        restart_likely_fixes=True,
+        root_cause="Transient network blip",
+        severity="medium",
+        category="network",
+        suggestions=["Retry"],
+        confidence=0.7,
+    )
+    fake_agent = MagicMock()
+    fake_agent.analyze = AsyncMock(return_value=(restart_yes, False))
+
+    slack_conf = MagicMock()
+    slack_conf.is_enabled = True
+    slack_conf.config = {"webhook_url": "https://hooks.test/x"}
+    email_conf = MagicMock()
+    email_conf.is_enabled = True
+    email_conf.config = {"to": "dev@test.com"}
+
+    async def fake_get_config(_factory, _tenant_id, channel):
+        return slack_conf if channel == "slack" else email_conf
+
+    # Docker client: container.restart raises NotFound → restart_success=False
+    import docker.errors
+    fake_container = MagicMock()
+    fake_container.restart.side_effect = docker.errors.NotFound("gone")
+    fake_docker_client = MagicMock()
+    fake_docker_client.containers.get.return_value = fake_container
+
+    fake_host = MagicMock()
+    fake_host.id = host_id
+    fake_host.tcp_url = "tcp://test:2376"
+    fake_host.connection_mode = "tcp"
+    fake_host.tls_enabled = False
+    fake_host.tls_ca = None
+    fake_host.tls_cert = None
+    fake_host.tls_key = None
+
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=fake_host)
+    session.execute = AsyncMock()
+    session.commit = AsyncMock()
+    session.__aenter__.return_value = session
+    session.__aexit__.return_value = None
+
+    fake_slack = MagicMock()
+    fake_slack.notify = AsyncMock(return_value=True)
+    fake_email = MagicMock()
+    fake_email.send = AsyncMock(return_value=True)
+
+    with patch("src.orchestrator.nodes.async_session_factory", return_value=session), \
+         patch("src.orchestrator.nodes.docker.DockerClient", return_value=fake_docker_client), \
+         patch("src.orchestrator.nodes.get_fix_agent", return_value=fake_agent), \
+         patch("src.orchestrator.nodes.get_notification_config", side_effect=fake_get_config), \
+         patch("src.orchestrator.nodes.SlackAgent", return_value=fake_slack), \
+         patch("src.orchestrator.nodes.EmailAgent", return_value=fake_email):
+        final_state = await crash_workflow.ainvoke(initial_state)
+
+    # restart WAS attempted but failed
+    assert final_state["restart_attempted"] is True
+    assert final_state["restart_success"] is False
+    # notifications both fired
+    fake_slack.notify.assert_awaited_once()
+    fake_email.send.assert_awaited_once()
+    assert final_state["slack_sent"] is True
+    assert final_state["email_sent"] is True

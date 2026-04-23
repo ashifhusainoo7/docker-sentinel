@@ -6,12 +6,16 @@ import docker
 import docker.errors
 from sqlalchemy import func, update
 
+from config.settings import settings
+from src.agents.email_agent import EmailAgent
 from src.agents.fix_agent import get_fix_agent
+from src.agents.slack_agent import SlackAgent
 from src.listener._tls import build_tls_config
 from src.models.crash_event import CrashEvent
 from src.models.docker_host import DockerHost
 from src.orchestrator.state import CrashState
 from src.services.database import async_session_factory
+from src.services.notification_service import get_notification_config
 
 logger = logging.getLogger("sentinel.orchestrator")
 
@@ -83,30 +87,78 @@ async def attempt_restart(state: CrashState) -> dict:
 
 
 async def notify_slack(state: CrashState) -> dict:
-    """Node: Send Slack notification."""
-    raise NotImplementedError(
-        "notify_slack node not yet implemented. "
-        "Will look up tenant notification config, "
-        "instantiate SlackAgent, and call notify()."
-    )
+    """Node: POST a Slack message for the tenant, if configured + enabled."""
+    try:
+        tenant_id = uuid.UUID(state["tenant_id"])
+        config = await get_notification_config(
+            async_session_factory, tenant_id, "slack"
+        )
+        if config is None:
+            return {"slack_sent": False}
+        webhook_url = (config.config or {}).get("webhook_url")
+        if not webhook_url:
+            logger.info(
+                "Slack config for tenant %s missing webhook_url; skipping",
+                tenant_id,
+            )
+            return {"slack_sent": False}
+
+        agent = SlackAgent(webhook_url=webhook_url)
+        sent = await agent.notify(
+            state["crash_event"], state.get("analysis") or {}
+        )
+        return {"slack_sent": sent}
+    except Exception:
+        logger.exception("notify_slack failed unexpectedly")
+        return {"slack_sent": False}
 
 
 async def send_email(state: CrashState) -> dict:
-    """Node: Send detailed email report."""
-    raise NotImplementedError(
-        "send_email node not yet implemented. "
-        "Will look up tenant notification config + container owner, "
-        "instantiate EmailAgent, and call send()."
-    )
+    """Node: send the HTML crash report email for the tenant, if configured."""
+    try:
+        tenant_id = uuid.UUID(state["tenant_id"])
+        config = await get_notification_config(
+            async_session_factory, tenant_id, "email"
+        )
+        if config is None:
+            return {"email_sent": False}
+        recipient = (config.config or {}).get("to")
+        if not recipient:
+            logger.info(
+                "Email config for tenant %s missing 'to'; skipping",
+                tenant_id,
+            )
+            return {"email_sent": False}
+
+        agent = EmailAgent(
+            host=settings.smtp_host,
+            port=settings.smtp_port,
+            user=settings.smtp_user,
+            password=settings.smtp_password,
+            from_email=settings.smtp_from_email,
+        )
+        sent = await agent.send(
+            state["crash_event"], state.get("analysis") or {}, recipient
+        )
+        return {"email_sent": sent}
+    except Exception:
+        logger.exception("send_email failed unexpectedly")
+        return {"email_sent": False}
 
 
 async def make_call(state: CrashState) -> dict:
-    """Node: Make voice call for critical multi-crash escalation."""
-    raise NotImplementedError(
-        "make_call node not yet implemented. "
-        "Will look up tenant escalation config, "
-        "instantiate CallAgent, and call escalate()."
+    """Node: voice-call escalation for multi-crash scenarios.
+
+    Phase 2b: CallAgent is not yet implemented. The graph can reach this
+    node only when state["recent_crash_count"] >= 2, which the worker
+    currently never sets (always 0 in _process_event). The no-op return
+    below is defensive — it keeps the workflow alive if someone later
+    starts populating recent_crash_count before CallAgent lands.
+    """
+    logger.info(
+        "make_call reached but CallAgent not yet implemented; skipping"
     )
+    return {"call_triggered": False}
 
 
 async def log_event(state: CrashState) -> dict:
@@ -142,27 +194,26 @@ async def log_event(state: CrashState) -> dict:
 
 
 def should_restart(state: CrashState) -> str:
-    """Conditional edge: decide whether to attempt restart or skip to log.
+    """Conditional edge: restart the container or skip straight to notifications.
 
-    Phase 2: notify_slack is NotImplementedError, so the False branch routes
-    to `log` instead. Phase 2.5 (notification agents) will restore the
-    `restart_likely_fixes=False → notify_slack` edge.
+    Phase 2b: non-restart analyses now route to notify_slack (restored from
+    the Phase 2 workaround that sent them to `log`).
     """
     analysis = state.get("analysis")
     if analysis and analysis.get("restart_likely_fixes"):
         return "attempt_restart"
-    return "log"
+    return "notify_slack"
 
 
 def check_restart_result(state: CrashState) -> str:
-    """Conditional edge: after restart, route to log.
+    """Conditional edge: successful restart logs; any other outcome notifies.
 
-    Phase 1/2: all paths route to `log` because notify_slack is NotImplementedError.
-    Phase 2.5 (notification agents) will restore the
-    `restart_success=False → notify_slack` edge and add a matching key to the
-    graph's conditional-edge mapping.
+    Phase 2b: `restart_success` False or None routes to notify_slack. Only an
+    explicit True proceeds to log.
     """
-    return "log"
+    if state.get("restart_success") is True:
+        return "log"
+    return "notify_slack"
 
 
 def check_multi_crash(state: CrashState) -> str:

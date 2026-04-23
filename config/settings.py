@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # Notifications — Platform Defaults
     slack_webhook_url: str = ""
     sendgrid_api_key: str = ""
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
     smtp_from_email: str = ""
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
