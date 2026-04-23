@@ -1,18 +1,24 @@
-export function getAccessToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("access_token");
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export async function getMe(): Promise<{ user: UserPayload; tenant_name: string; tenant_slug: string } | null> {
+  const res = await fetch(`${API_URL}/api/v1/auth/me`, {
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  return res.json();
 }
 
-export function setTokens(accessToken: string, refreshToken: string): void {
-  localStorage.setItem("access_token", accessToken);
-  localStorage.setItem("refresh_token", refreshToken);
+export async function logout(): Promise<void> {
+  await fetch(`${API_URL}/api/v1/auth/logout`, {
+    method: "POST",
+    credentials: "include",
+  });
 }
 
-export function clearTokens(): void {
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("refresh_token");
-}
-
-export function isAuthenticated(): boolean {
-  return !!getAccessToken();
+export interface UserPayload {
+  id: string;
+  email: string;
+  name: string | null;
+  avatar_url: string | null;
+  role: string;
 }

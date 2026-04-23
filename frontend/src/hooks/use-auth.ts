@@ -1,51 +1,37 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import { isAuthenticated, clearTokens } from "@/lib/auth";
-
-interface User {
-  id: string;
-  email: string;
-  name: string | null;
-  avatar_url: string | null;
-  role: string;
-}
+import { getMe, logout as backendLogout, type UserPayload } from "@/lib/auth";
 
 interface AuthState {
-  user: User | null;
+  user: UserPayload | null;
   tenantName: string | null;
   loading: boolean;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 export function useAuth(): AuthState {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserPayload | null>(null);
   const [tenantName, setTenantName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isAuthenticated()) {
-      setLoading(false);
-      return;
-    }
-
-    api
-      .get<{ user: User; tenant_name: string }>("/api/v1/auth/me")
+    getMe()
       .then((data) => {
-        setUser(data.user);
-        setTenantName(data.tenant_name);
-      })
-      .catch(() => {
-        clearTokens();
+        if (data) {
+          setUser(data.user);
+          setTenantName(data.tenant_name);
+        }
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const logout = () => {
-    clearTokens();
+  const logout = async () => {
+    await backendLogout();
     setUser(null);
-    window.location.href = "/login";
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
   };
 
   return { user, tenantName, loading, logout };
