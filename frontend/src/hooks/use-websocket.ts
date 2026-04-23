@@ -1,5 +1,10 @@
 "use client";
 
+// TEMP: placeholder returns "offline" until T6 wires real status
+export function useWebsocketStatus(): "live" | "connecting" | "offline" {
+  return "offline";
+}
+
 import { useEffect, useRef, useState } from "react";
 
 const WS_URL = process.env.NEXT_PUBLIC_API_URL?.replace("http", "ws") || "ws://localhost:8000";

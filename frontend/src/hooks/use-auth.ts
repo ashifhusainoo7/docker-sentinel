@@ -7,6 +7,7 @@ interface AuthState {
   user: UserPayload | null;
   tenantName: string | null;
   loading: boolean;
+  error: Error | null;
   logout: () => Promise<void>;
 }
 
@@ -14,6 +15,7 @@ export function useAuth(): AuthState {
   const [user, setUser] = useState<UserPayload | null>(null);
   const [tenantName, setTenantName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     getMe()
@@ -22,6 +24,9 @@ export function useAuth(): AuthState {
           setUser(data.user);
           setTenantName(data.tenant_name);
         }
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e : new Error("Failed to load user"));
       })
       .finally(() => setLoading(false));
   }, []);
@@ -34,5 +39,5 @@ export function useAuth(): AuthState {
     }
   };
 
-  return { user, tenantName, loading, logout };
+  return { user, tenantName, loading, error, logout };
 }
