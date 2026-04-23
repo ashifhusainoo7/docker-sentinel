@@ -6,12 +6,16 @@ import docker
 import docker.errors
 from sqlalchemy import func, update
 
+from config.settings import settings
+from src.agents.email_agent import EmailAgent
 from src.agents.fix_agent import get_fix_agent
+from src.agents.slack_agent import SlackAgent
 from src.listener._tls import build_tls_config
 from src.models.crash_event import CrashEvent
 from src.models.docker_host import DockerHost
 from src.orchestrator.state import CrashState
 from src.services.database import async_session_factory
+from src.services.notification_service import get_notification_config
 
 logger = logging.getLogger("sentinel.orchestrator")
 
@@ -83,21 +87,63 @@ async def attempt_restart(state: CrashState) -> dict:
 
 
 async def notify_slack(state: CrashState) -> dict:
-    """Node: Send Slack notification."""
-    raise NotImplementedError(
-        "notify_slack node not yet implemented. "
-        "Will look up tenant notification config, "
-        "instantiate SlackAgent, and call notify()."
-    )
+    """Node: POST a Slack message for the tenant, if configured + enabled."""
+    try:
+        tenant_id = uuid.UUID(state["tenant_id"])
+        config = await get_notification_config(
+            async_session_factory, tenant_id, "slack"
+        )
+        if config is None:
+            return {"slack_sent": False}
+        webhook_url = (config.config or {}).get("webhook_url")
+        if not webhook_url:
+            logger.info(
+                "Slack config for tenant %s missing webhook_url; skipping",
+                tenant_id,
+            )
+            return {"slack_sent": False}
+
+        agent = SlackAgent(webhook_url=webhook_url)
+        sent = await agent.notify(
+            state["crash_event"], state.get("analysis") or {}
+        )
+        return {"slack_sent": sent}
+    except Exception:
+        logger.exception("notify_slack failed unexpectedly")
+        return {"slack_sent": False}
 
 
 async def send_email(state: CrashState) -> dict:
-    """Node: Send detailed email report."""
-    raise NotImplementedError(
-        "send_email node not yet implemented. "
-        "Will look up tenant notification config + container owner, "
-        "instantiate EmailAgent, and call send()."
-    )
+    """Node: send the HTML crash report email for the tenant, if configured."""
+    try:
+        tenant_id = uuid.UUID(state["tenant_id"])
+        config = await get_notification_config(
+            async_session_factory, tenant_id, "email"
+        )
+        if config is None:
+            return {"email_sent": False}
+        recipient = (config.config or {}).get("to")
+        if not recipient:
+            logger.info(
+                "Email config for tenant %s missing 'to'; skipping",
+                tenant_id,
+            )
+            return {"email_sent": False}
+
+        agent = EmailAgent(
+            host=settings.smtp_host,
+            port=settings.smtp_port,
+            user=settings.smtp_user,
+            password=settings.smtp_password,
+            from_email=settings.smtp_from_email,
+        )
+        sent = await agent.send(
+            state["crash_event"], state.get("analysis") or {}, recipient
+        )
+        return {"email_sent": sent}
+    except Exception:
+        logger.exception("send_email failed unexpectedly")
+        return {"email_sent": False}
 
 
 async def make_call(state: CrashState) -> dict:
