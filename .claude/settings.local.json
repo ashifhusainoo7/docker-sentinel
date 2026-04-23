@@ -3,7 +3,20 @@
     "allow": [
       "Bash(bash \"C:\\\\Users\\\\Asif Husain\\\\.claude\\\\plugins\\\\cache\\\\claude-plugins-official\\\\superpowers\\\\5.0.7\\\\skills\\\\brainstorming\\\\scripts\\\\start-server.sh\" --project-dir \"c:\\\\docker-sentinel\")",
       "mcp__plugin_context7_context7__resolve-library-id",
-      "mcp__plugin_context7_context7__query-docs"
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(ls:*)",
+      "Bash(npx skills *)",
+      "Bash(curl -s https://api.github.com/repos/googleworkspace/cli/contents/skills)",
+      "Bash(curl -s https://api.github.com/repos/googleworkspace/cli/contents/skills?per_page=100)",
+      "Bash(curl -s https://raw.githubusercontent.com/googleworkspace/cli/main/skills/gws-shared/SKILL.md)",
+      "Bash(npx -y skills add --help)",
+      "Bash(npx -y skills --help)",
+      "Bash(npx -y skills add https://github.com/googleworkspace/cli --skill gws-shared --agent claude-code -y)"
     ]
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true,
+    "figma@claude-plugins-official": true,
+    "vercel@claude-plugins-official": true
   }
 }

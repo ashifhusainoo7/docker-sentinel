@@ -42,3 +42,7 @@ Thumbs.db
 
 # Qdrant local data
 qdrant_data/
+
+# Claude Code session artifacts (skills/plugins downloaded per-machine)
+.claude/skills/
+skills-lock.json
