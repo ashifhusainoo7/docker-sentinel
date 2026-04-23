@@ -324,13 +324,17 @@ Standalone agent for customer-hosted Docker environments.
   - Frontend test harness (Vitest / Playwright) — manual visual verification only so far.
   - Host-card sparklines are deterministic-placeholder (seeded by `host.id`); real per-host crash-series endpoint is future work.
   - `CrashEvent.llm_provider` and `llm_latency_ms` still NULL in rows produced before the columns were wired up.
-- **Pick up from here:** Good candidates:
+- **Merge + publish:** `feat/frontend-redesign` merged into `master` via `--no-ff` as commit `1901e6a`; branch deleted. `PROGRESS.md` logged as `19973bd`. `chore: gitignore Claude Code session skills` as `1b9df5f`. Master pushed to new **private** GitHub repo https://github.com/ashifhusainoo7/docker-sentinel (origin). `.env` verified gitignored; no secrets leaked.
+- **End-of-session smoke test on 2026-04-24:** `docker compose up -d postgres redis qdrant` + API + worker + frontend dev server all started cleanly. User logged in via Google OAuth, navigated Dashboard / Crashes / Hosts / Settings — pages render empty states as expected for the fresh tenant (no hosts/crashes seeded this session). All three services stopped at end of day.
+- **Pick up from here:** Good candidates for next session:
+  - **Wire WS `/api/v1/ws/live` handler for real** — token validation + tenant filter + crash event broadcast. Today's frontend header promises "live" but the backend endpoint is still a placeholder. See `src/api/routers/websocket.py:22,49-64`.
   - **CallAgent + Twilio (items #10, #14)** — voice escalation + `/settings/notifications` voice card is ready to light up.
-  - **Observability & metrics** — Prometheus counters, populate LLM provider/latency columns, tune Qdrant threshold.
+  - **Observability & metrics** — Prometheus counters, populate `llm_provider`/`llm_latency_ms` columns, tune Qdrant threshold.
   - **Real per-host sparkline endpoint** — swap deterministic placeholder for `GET /api/v1/hosts/{id}/recent-activity`.
-  - **`invite_member` implementation (Phase 4 item #19)** — email invitation + pending-user record. UI ready.
+  - **`invite_member` implementation (Phase 4 item #19)** — email invitation + pending-user record. UI already shows coming-soon EmptyState.
   - **Agent container (Phase 6 item #26)** — customer-hosted agent via WebSocket. WS token endpoint + `use-websocket` singleton are ready for agent-side consumption.
   - **Frontend test harness** — Vitest + React Testing Library for hooks, Playwright for critical flows (login, trigger crash, view in dashboard).
+  - **Unify data-hook pattern** — `use-dashboard.ts` uses `cancelled`-flag while the six other new hooks use generation-counter. Both correct; unify for consistency.
 
 ---
 
@@ -349,3 +353,5 @@ cd frontend && npm run dev                # frontend only
 pytest
 ruff check src/ tests/
 ```
+
+**GitHub remote (private):** https://github.com/ashifhusainoo7/docker-sentinel
