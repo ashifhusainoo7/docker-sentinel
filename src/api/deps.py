@@ -2,17 +2,15 @@ import uuid
 from collections.abc import AsyncGenerator
 
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config.settings import settings
 from src.models.tenant import Tenant
 from src.models.user import User
+from src.services import auth_service
+from src.services.auth_cookies import ACCESS_COOKIE
 from src.services.database import async_session_factory
-
-security = HTTPBearer()
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -26,26 +24,35 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: AsyncSession = Depends(get_db),
+    authorization: str | None = Header(default=None),
 ) -> User:
-    token = credentials.credentials
-    try:
-        payload = jwt.decode(
-            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
-        )
-        if payload.get("type") != "access":
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
-        user_id = uuid.UUID(payload["sub"])
-    except (jwt.InvalidTokenError, KeyError, ValueError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
-        ) from e
+    """Resolve the current user from the access_token cookie or Bearer header.
 
-    result = await db.execute(select(User).where(User.id == user_id, User.is_active == True))
+    Cookie is preferred; header is a fallback for programmatic/API-key use.
+    """
+    token = request.cookies.get(ACCESS_COOKIE)
+    if not token and authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = auth_service.decode_token(token)
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired") from None
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid token") from e
+
+    user_id = uuid.UUID(payload["sub"])
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found")
     return user
 
 

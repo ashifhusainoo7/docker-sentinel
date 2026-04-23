@@ -1,5 +1,5 @@
 from src.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyResponse
-from src.schemas.auth import MeResponse, Token, TokenRefresh, UserResponse
+from src.schemas.auth import MeResponse, Token, UserResponse
 from src.schemas.crash_event import (
     CrashAnalysis,
     CrashEventCreate,
@@ -60,7 +60,6 @@ __all__ = [
     "TestNotificationRequest",
     "TimelineResponse",
     "Token",
-    "TokenRefresh",
     "TopCrasher",
     "UserResponse",
 ]

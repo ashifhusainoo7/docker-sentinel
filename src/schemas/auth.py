@@ -10,10 +10,6 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
-class TokenRefresh(BaseModel):
-    refresh_token: str
-
-
 class UserResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID

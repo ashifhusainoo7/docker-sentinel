@@ -3,6 +3,7 @@ import logging
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from config.settings import settings
 
@@ -16,6 +17,13 @@ def setup_middleware(app: FastAPI) -> None:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.jwt_secret_key,
+        same_site="lax",
+        https_only=settings.environment != "development",
     )
 
     @app.middleware("http")

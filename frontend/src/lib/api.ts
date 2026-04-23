@@ -1,5 +1,13 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+async function refreshOnce(): Promise<boolean> {
+  const res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+    method: "POST",
+    credentials: "include",
+  });
+  return res.ok;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -7,35 +15,28 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
-  private getToken(): string | null {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem("access_token");
-  }
-
   private async request<T>(
     path: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    _retry = false,
   ): Promise<T> {
-    const token = this.getToken();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...((options.headers as Record<string, string>) || {}),
     };
 
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
       headers,
+      credentials: "include",
     });
 
-    if (response.status === 401) {
-      // TODO: Attempt token refresh
+    if (response.status === 401 && !_retry && !path.startsWith("/api/v1/auth/")) {
+      const refreshed = await refreshOnce();
+      if (refreshed) {
+        return this.request<T>(path, options, true);
+      }
       if (typeof window !== "undefined") {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
         window.location.href = "/login";
       }
     }
