@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     app_url: str = "http://localhost:3000"
     api_url: str = "http://localhost:8000"
     environment: str = "development"
+    log_sql: bool = False
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
