@@ -166,11 +166,13 @@ export function useWebSocket<T = unknown>(
   options: UseWebSocketOptions = {},
 ): { lastMessage: T | null; status: WsStatus } {
   const { enabled = true } = options;
-  const [status, setLocalStatus] = useState<WsStatus>(state.status);
-  const [lastMessage, setLastMessage] = useState<unknown>(state.lastMessage);
+  const [status, setLocalStatus] = useState<WsStatus>("offline");
+  const [lastMessage, setLastMessage] = useState<unknown>(null);
 
   useEffect(() => {
     if (!enabled) return;
+    setLocalStatus(state.status);
+    setLastMessage(state.lastMessage);
     state.refCount += 1;
     const unsub = subscribe((s, m) => {
       setLocalStatus(s);

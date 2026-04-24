@@ -7,7 +7,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -74,12 +73,10 @@ export function Header() {
               }
             />
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium">{user.name ?? user.email}</span>
-                  <span className="text-xs text-muted-foreground">{user.email}</span>
-                </div>
-              </DropdownMenuLabel>
+              <div className="px-1.5 py-1 flex flex-col gap-0.5">
+                <span className="text-sm font-medium">{user.name ?? user.email}</span>
+                <span className="text-xs text-muted-foreground">{user.email}</span>
+              </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 render={<a href="/settings" className="cursor-pointer" />}
