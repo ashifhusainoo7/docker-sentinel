@@ -1,7 +1,8 @@
 import asyncio
 import logging
+import random
 import uuid
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from sqlalchemy import select
 
@@ -84,7 +85,7 @@ class TenantConsumerSupervisor:
                 await asyncio.wait_for(
                     self._shutdown.wait(), timeout=self._sync_interval
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
 
@@ -137,29 +138,47 @@ async def _process_event(
 async def _consume_tenant(
     tenant_id: uuid.UUID, shutdown: asyncio.Event
 ) -> None:
-    """Loop: consume from crashes:{tenant_id}, process, repeat until shutdown."""
-    from src.services.redis_stream import consume_crash_events
+    """Loop: consume from crashes:{tenant_id}, process, ack, repeat until shutdown.
 
+    A message is acked only after ``_process_event`` returns successfully. If
+    processing raises (e.g. the DB insert fails), the message is left pending and
+    reclaimed on a later cycle instead of being silently dropped.
+    """
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from redis.exceptions import TimeoutError as RedisTimeoutError
+
+    from src.services.redis_stream import (
+        ack_crash_event,
+        consume_crash_events,
+        reset_redis,
+    )
+
+    attempt = 0
     while not shutdown.is_set():
         try:
             events = await consume_crash_events(
-                str(tenant_id),
-                consumer_group="orchestrator",
-                consumer_name="worker-1",
+                str(tenant_id), consumer_group="orchestrator"
             )
+            attempt = 0  # A successful read resets the backoff.
             for event in events:
                 if shutdown.is_set():
                     break
                 await _process_event(event, tenant_id, async_session_factory)
+                if event.get("id"):
+                    await ack_crash_event(str(tenant_id), event["id"], "orchestrator")
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.exception(
-                "Consumer error for tenant=%s; retrying in 5s", tenant_id
-            )
+        except Exception as exc:
+            logger.exception("Consumer error for tenant=%s", tenant_id)
+            # A dead connection would otherwise be handed back forever; drop the
+            # cached client so the next loop reconnects.
+            if isinstance(exc, (RedisConnectionError, RedisTimeoutError)):
+                await reset_redis()
+            attempt += 1
+            delay = min(5 * 2 ** (attempt - 1), 60) + random.uniform(0, 2)
             try:
-                await asyncio.wait_for(shutdown.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
+                await asyncio.wait_for(shutdown.wait(), timeout=delay)
+            except TimeoutError:
                 pass
 
 
