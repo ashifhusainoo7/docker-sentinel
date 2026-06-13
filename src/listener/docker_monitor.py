@@ -128,8 +128,11 @@ class DockerMonitor:
             return
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue(maxsize=1000)
-        self._async_client = docker.DockerClient(
-            base_url=self.host_url, tls=self.tls_config
+        # Building the client does a blocking version handshake (up to its
+        # timeout). Run it off the event loop so an unreachable host can't freeze
+        # the loop for every other tenant; a bounded timeout caps the stall.
+        self._async_client = await asyncio.to_thread(
+            docker.DockerClient, base_url=self.host_url, tls=self.tls_config, timeout=10
         )
         self._shutdown_event.clear()
         self._thread = threading.Thread(

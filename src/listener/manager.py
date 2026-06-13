@@ -46,7 +46,9 @@ class ListenerManager:
                 finally:
                     self._listeners.pop(host_id, None)
 
-        # Spawn monitors for new hosts.
+        # Spawn monitors for new hosts. One unreachable host must not prevent the
+        # others from being monitored, so each start is isolated — a failure is
+        # logged and retried on the next sync rather than aborting the loop.
         for host_id, host in desired.items():
             if host_id in self._listeners:
                 continue
@@ -61,7 +63,14 @@ class ListenerManager:
                 container_filter=host.container_filter or [],
                 db_session_factory=self._db_session_factory,
             )
-            await monitor.start()
+            try:
+                await monitor.start()
+            except Exception:
+                logger.exception(
+                    "Failed to start listener for host %s; will retry next sync",
+                    host_id,
+                )
+                continue
             self._listeners[host_id] = monitor
 
     def _build_tls_config(self, host: DockerHost):
@@ -102,5 +111,5 @@ class ListenerManager:
                 await asyncio.wait_for(
                     self._shutdown.wait(), timeout=self._sync_interval
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # normal path — interval elapsed

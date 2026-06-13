@@ -58,6 +58,35 @@ async def test_sync_spawns_monitor_for_new_host(fake_session_with_hosts, host_id
 
 
 @pytest.mark.asyncio
+async def test_sync_isolates_failing_host_so_others_still_start(
+    fake_session_with_hosts, tenant_id
+):
+    """One unreachable host must not prevent other hosts from being monitored."""
+    bad_id = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    good_id = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    factory = fake_session_with_hosts(
+        [_fake_host(bad_id, tenant_id), _fake_host(good_id, tenant_id)]
+    )
+
+    bad = MagicMock()
+    bad.start = AsyncMock(side_effect=Exception("daemon unreachable"))
+    bad.stop = AsyncMock()
+    good = MagicMock()
+    good.start = AsyncMock()
+    good.stop = AsyncMock()
+
+    with patch("src.listener.manager.DockerMonitor", side_effect=[bad, good]):
+        mgr = ListenerManager(db_session_factory=factory)
+        await mgr.sync_listeners()  # must not raise despite the bad host
+
+    bad.start.assert_awaited_once()
+    good.start.assert_awaited_once()
+    # Bad host isn't registered (retried next sync); good host is monitored.
+    assert bad_id not in mgr._listeners
+    assert good_id in mgr._listeners
+
+
+@pytest.mark.asyncio
 async def test_sync_stops_monitor_for_removed_host(fake_session_with_hosts, host_id, tenant_id):
     factory = fake_session_with_hosts([])
 
