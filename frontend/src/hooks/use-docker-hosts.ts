@@ -75,6 +75,16 @@ export async function deleteHost(id: string): Promise<void> {
   await api.delete(`/api/v1/hosts/${id}`);
 }
 
-export async function testHostConnection(id: string): Promise<unknown> {
-  return api.post<unknown>(`/api/v1/hosts/${id}/test`);
+export interface HostTestResult {
+  ok: boolean;
+  mode: "tcp" | "agent";
+  message?: string;
+  docker_version?: string;
+  api_version?: string;
+  running_containers?: number;
+  latency_ms?: number;
+}
+
+export async function testHostConnection(id: string): Promise<HostTestResult> {
+  return api.post<HostTestResult>(`/api/v1/hosts/${id}/test`);
 }
