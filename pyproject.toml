@@ -65,3 +65,6 @@ select = ["E", "F", "I", "N", "W", "UP"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: tests that require live infra (redis/postgres/qdrant); skipped if unreachable",
+]
