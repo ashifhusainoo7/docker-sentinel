@@ -20,11 +20,11 @@ async def test_notify_slack_skips_when_no_config(initial_state):
     with patch(
         "src.orchestrator.nodes.get_notification_config",
         new=AsyncMock(return_value=None),
-    ), patch("src.orchestrator.nodes.SlackAgent") as Agent:
+    ), patch("src.orchestrator.nodes.SlackAgent") as agent_cls:
         result = await notify_slack(initial_state)
 
     assert result == {"slack_sent": False}
-    Agent.assert_not_called()
+    agent_cls.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -33,11 +33,11 @@ async def test_notify_slack_skips_when_webhook_url_missing(initial_state):
     with patch(
         "src.orchestrator.nodes.get_notification_config",
         new=AsyncMock(return_value=conf),
-    ), patch("src.orchestrator.nodes.SlackAgent") as Agent:
+    ), patch("src.orchestrator.nodes.SlackAgent") as agent_cls:
         result = await notify_slack(initial_state)
 
     assert result == {"slack_sent": False}
-    Agent.assert_not_called()
+    agent_cls.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -49,11 +49,11 @@ async def test_notify_slack_calls_agent_and_returns_true(initial_state):
     with patch(
         "src.orchestrator.nodes.get_notification_config",
         new=AsyncMock(return_value=conf),
-    ), patch("src.orchestrator.nodes.SlackAgent", return_value=fake_agent) as Agent:
+    ), patch("src.orchestrator.nodes.SlackAgent", return_value=fake_agent) as agent_cls:
         result = await notify_slack(initial_state)
 
     assert result == {"slack_sent": True}
-    Agent.assert_called_once_with(webhook_url="https://hooks.slack.test/X")
+    agent_cls.assert_called_once_with(webhook_url="https://hooks.slack.test/X")
     fake_agent.notify.assert_awaited_once()
     args = fake_agent.notify.await_args.args
     assert args[0] == initial_state["crash_event"]
@@ -93,11 +93,11 @@ async def test_send_email_skips_when_no_config(initial_state):
     with patch(
         "src.orchestrator.nodes.get_notification_config",
         new=AsyncMock(return_value=None),
-    ), patch("src.orchestrator.nodes.EmailAgent") as Agent:
+    ), patch("src.orchestrator.nodes.EmailAgent") as agent_cls:
         result = await send_email(initial_state)
 
     assert result == {"email_sent": False}
-    Agent.assert_not_called()
+    agent_cls.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -106,11 +106,11 @@ async def test_send_email_skips_when_recipient_missing(initial_state):
     with patch(
         "src.orchestrator.nodes.get_notification_config",
         new=AsyncMock(return_value=conf),
-    ), patch("src.orchestrator.nodes.EmailAgent") as Agent:
+    ), patch("src.orchestrator.nodes.EmailAgent") as agent_cls:
         result = await send_email(initial_state)
 
     assert result == {"email_sent": False}
-    Agent.assert_not_called()
+    agent_cls.assert_not_called()
 
 
 @pytest.mark.asyncio

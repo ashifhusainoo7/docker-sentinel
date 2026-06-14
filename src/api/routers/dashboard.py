@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, distinct, func, select
@@ -22,14 +22,14 @@ _PERIOD_BUCKET: dict[str, str] = {"24h": "hour", "7d": "day", "30d": "day"}
 
 def _period_window(period: str) -> tuple[datetime, datetime]:
     """Return (start, end) UTC datetimes for the given period string."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     days = _PERIOD_DAYS[period]
     return now - timedelta(days=days), now
 
 
 def _prior_window(period: str) -> tuple[datetime, datetime]:
     """Return (start, end) UTC datetimes for the period *before* the given one."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     days = _PERIOD_DAYS[period]
     end = now - timedelta(days=days)
     start = end - timedelta(days=days)
@@ -42,7 +42,7 @@ def _prior_window(period: str) -> tuple[datetime, datetime]:
 
 
 async def _get_summary_data(tenant: Tenant, db: AsyncSession) -> dict:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     since = now - timedelta(hours=24)
 
     # Total crashes in last 24h
@@ -214,7 +214,7 @@ async def _get_timeline_data(tenant: Tenant, db: AsyncSession, period: str) -> d
     for row in crash_result:
         key = row.bucket
         if key.tzinfo is None:
-            key = key.replace(tzinfo=timezone.utc)
+            key = key.replace(tzinfo=UTC)
         crash_map[key] = row.cnt
 
     restart_result = await db.execute(
@@ -233,7 +233,7 @@ async def _get_timeline_data(tenant: Tenant, db: AsyncSession, period: str) -> d
     for row in restart_result:
         key = row.bucket
         if key.tzinfo is None:
-            key = key.replace(tzinfo=timezone.utc)
+            key = key.replace(tzinfo=UTC)
         restart_map[key] = row.cnt
 
     # Gap-fill: every bucket gets a point even if not in DB result
@@ -241,7 +241,7 @@ async def _get_timeline_data(tenant: Tenant, db: AsyncSession, period: str) -> d
     for bucket_dt in buckets:
         # Normalise to UTC-aware for lookup
         if bucket_dt.tzinfo is None:
-            bucket_dt = bucket_dt.replace(tzinfo=timezone.utc)
+            bucket_dt = bucket_dt.replace(tzinfo=UTC)
         points.append(
             {
                 "t": bucket_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00"),

@@ -1,6 +1,5 @@
-import pytest
 
-from src.orchestrator.nodes import should_restart, check_multi_crash, check_restart_result
+from src.orchestrator.nodes import check_multi_crash, check_restart_result, should_restart
 
 
 def test_should_restart_true():

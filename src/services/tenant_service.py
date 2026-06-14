@@ -22,6 +22,6 @@ async def update_tenant(db: AsyncSession, tenant_id: uuid.UUID, name: str) -> Te
 
 async def list_members(db: AsyncSession, tenant_id: uuid.UUID) -> list[User]:
     result = await db.execute(
-        select(User).where(User.tenant_id == tenant_id, User.is_active == True)
+        select(User).where(User.tenant_id == tenant_id, User.is_active)
     )
     return list(result.scalars().all())

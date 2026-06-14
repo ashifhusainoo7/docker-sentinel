@@ -1,6 +1,6 @@
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 from sqlalchemy import select
@@ -29,7 +29,7 @@ async def create_api_key(
     key, key_hash, key_prefix = generate_api_key()
     expires_at = None
     if data.expires_in_days:
-        expires_at = datetime.now(timezone.utc) + timedelta(days=data.expires_in_days)
+        expires_at = datetime.now(UTC) + timedelta(days=data.expires_in_days)
 
     api_key = ApiKey(
         tenant_id=tenant_id,
@@ -47,7 +47,7 @@ async def create_api_key(
 
 async def list_api_keys(db: AsyncSession, tenant_id: uuid.UUID) -> list[ApiKey]:
     result = await db.execute(
-        select(ApiKey).where(ApiKey.tenant_id == tenant_id, ApiKey.is_active == True)
+        select(ApiKey).where(ApiKey.tenant_id == tenant_id, ApiKey.is_active)
     )
     return list(result.scalars().all())
 
@@ -70,11 +70,11 @@ async def validate_api_key(db: AsyncSession, key: str) -> ApiKey | None:
     """Validate an API key and return the associated ApiKey model."""
     prefix = key[:12]
     result = await db.execute(
-        select(ApiKey).where(ApiKey.key_prefix == prefix, ApiKey.is_active == True)
+        select(ApiKey).where(ApiKey.key_prefix == prefix, ApiKey.is_active)
     )
     for api_key in result.scalars().all():
         if verify_api_key(key, api_key.key_hash):
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if api_key.expires_at and api_key.expires_at < now:
                 return None
             api_key.last_used_at = now

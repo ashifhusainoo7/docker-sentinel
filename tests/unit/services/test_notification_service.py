@@ -7,7 +7,8 @@ from src.services.notification_service import get_notification_config
 
 
 def _factory(rows):
-    """Build an async_sessionmaker-shaped mock that returns `rows` on execute().scalar_one_or_none()."""
+    """Build an async_sessionmaker-shaped mock that returns `rows` on
+    execute().scalar_one_or_none()."""
     session = AsyncMock()
     result = MagicMock()
     result.scalar_one_or_none.return_value = rows[0] if rows else None

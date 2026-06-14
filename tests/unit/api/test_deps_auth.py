@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -78,7 +78,7 @@ async def test_get_current_user_prefers_cookie_over_header(
     request = _request_with_cookies({"access_token": cookie_token})
     db = _db_returning(fake_user)
 
-    result = await get_current_user(
+    await get_current_user(
         request, db, authorization=f"Bearer {header_token}"
     )
     # Assert the cookie token's user_id was used for the DB lookup
@@ -100,6 +100,7 @@ async def test_get_current_user_401_when_no_token():
 @pytest.mark.asyncio
 async def test_get_current_user_401_when_token_expired(user_id, tenant_id, fake_user):
     import jwt
+
     from config.settings import settings
 
     # Build an expired token

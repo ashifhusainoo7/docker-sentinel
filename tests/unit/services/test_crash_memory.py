@@ -1,7 +1,7 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchValue
+from qdrant_client.http.models import Distance, FieldCondition, Filter
 
 from src.services.crash_memory import CrashMemory
 
@@ -40,7 +40,10 @@ async def test_find_similar_returns_none_when_no_match():
 
 @pytest.mark.asyncio
 async def test_find_similar_returns_payload_on_hit():
-    analysis = {"root_cause": "OOM", "severity": "high", "category": "oom", "confidence": 0.9, "suggestions": [], "restart_likely_fixes": True}
+    analysis = {
+        "root_cause": "OOM", "severity": "high", "category": "oom",
+        "confidence": 0.9, "suggestions": [], "restart_likely_fixes": True,
+    }
     mem = _make_memory_with_mocks(hit_payload={"analysis": analysis, "tenant_id": "t1"})
     result = await mem.find_similar("x", tenant_id="t1")
     assert result == analysis

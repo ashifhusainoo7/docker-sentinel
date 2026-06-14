@@ -29,7 +29,7 @@ class ListenerManager:
         async with self._db_session_factory() as session:
             result = await session.execute(
                 select(DockerHost).where(
-                    DockerHost.is_active == True,  # noqa: E712
+                    DockerHost.is_active,
                     DockerHost.connection_mode == "tcp",
                 )
             )

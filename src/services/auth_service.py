@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from sqlalchemy import select
@@ -11,7 +11,7 @@ from src.models.user import User
 
 
 def create_access_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
+    expire = datetime.now(UTC) + timedelta(
         minutes=settings.jwt_access_token_expire_minutes
     )
     payload = {
@@ -24,7 +24,7 @@ def create_access_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
 
 
 def create_ws_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expire = now + timedelta(minutes=1)
     payload = {
         "sub": str(user_id),
@@ -37,7 +37,7 @@ def create_ws_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
 
 
 def create_refresh_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
+    expire = datetime.now(UTC) + timedelta(
         days=settings.jwt_refresh_token_expire_days
     )
     payload = {

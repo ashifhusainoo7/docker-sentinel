@@ -7,17 +7,16 @@ Uses the mock-session pattern from test_auth_router.py:
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from src.api.deps import get_db, get_tenant
 from src.api.routers.dashboard import router
-from src.api.deps import get_tenant, get_db
 from src.models.tenant import Tenant
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -244,7 +243,7 @@ async def test_timeline_24h_returns_24_hourly_buckets(app_with_auth):
     """24h period must produce exactly 24 points sorted by t."""
 
     async def _fake_timeline(tenant, db, period):
-        now = datetime(2026, 4, 23, 12, 0, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 4, 23, 12, 0, 0, tzinfo=UTC)
         from datetime import timedelta
 
         points = [
@@ -283,7 +282,7 @@ async def test_timeline_pads_missing_buckets_with_zero(app_with_auth):
     async def _fake_timeline(tenant, db, period):
         from datetime import timedelta
 
-        now = datetime(2026, 4, 23, 12, 0, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 4, 23, 12, 0, 0, tzinfo=UTC)
         # Only 24 points all zeros to simulate gap-filling
         points = [
             {
