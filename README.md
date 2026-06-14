@@ -1,5 +1,11 @@
 # DockerSentinel
 
+[![CI](https://github.com/ashifhusainoo7/docker-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/ashifhusainoo7/docker-sentinel/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-165%20passing-brightgreen.svg)](#-testing)
+[![Code style: ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+
 A multi-tenant SaaS platform that monitors Docker container crashes, analyzes the root cause with an LLM, attempts automated recovery, and notifies your team via Slack and email — all with a Qdrant-backed semantic cache so repeat crashes don't burn LLM tokens.
 
 **Current capabilities (2026-04-23):**
@@ -237,21 +243,27 @@ cd frontend && npm run dev
 ## Testing
 
 ```bash
-# Run all unit + schema tests (no real API calls)
+# Run all unit + schema tests (no real API calls, no live infra)
 py -3.12 -m pytest tests/unit/ tests/test_services/test_crash_event_schema.py -v
 ```
 
-Expected: **109 passed**.
+Expected: **163 passed**.
+
+```bash
+# Optional: integration tests against a live stack (docker compose up -d redis)
+PYTHONPATH=. py -3.12 -m pytest tests/integration -v -m integration
+```
 
 ### Structure
 
-- `tests/unit/listener/` — Docker event listener, manager, dedup, filter
-- `tests/unit/worker/` — tenant supervisor, `_process_event`
+- `tests/unit/listener/` — Docker event listener, manager, dedup, filter, bridge backpressure
+- `tests/unit/worker/` — tenant supervisor, `_process_event`, consumer ack/reclaim
 - `tests/unit/orchestrator/` — nodes, conditional edges, compiled-workflow E2E
 - `tests/unit/agents/` — FixAgent, SlackAgent, EmailAgent, prompt builder
-- `tests/unit/services/` — CrashMemory (Qdrant), NotificationConfig lookup
+- `tests/unit/services/` — CrashMemory (Qdrant), NotificationConfig, DockerHost probe
+- `tests/integration/` — real Redis stream round-trip (consume/ack/reclaim); skipped if unreachable
 
-CI never calls OpenAI, Slack, SMTP, Qdrant, or Docker — all external integrations are mocked.
+Unit tests never call OpenAI, Slack, SMTP, Qdrant, or Docker — all external integrations are mocked.
 
 ---
 
@@ -296,6 +308,14 @@ Python 3.12 · FastAPI · LangGraph · Next.js 15 · Shadcn/ui · Tailwind · SQ
 
 ---
 
+## Author
+
+**Ashif Husain**
+
+- GitHub: [@ashifhusainoo7](https://github.com/ashifhusainoo7)
+- LinkedIn: [ashifhoo7](https://linkedin.com/in/ashifhoo7)
+- Email: [mdashifhusain@gmail.com](mailto:mdashifhusain@gmail.com)
+
 ## License
 
-Portfolio project — no license yet.
+[MIT](LICENSE)
