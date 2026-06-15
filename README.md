@@ -21,6 +21,26 @@ A multi-tenant SaaS platform that monitors Docker container crashes, analyzes th
 
 ---
 
+## Screenshots
+
+> 📸 _Screenshots coming soon._ Drop images in `docs/images/` and they'll render below.
+
+<!--
+| Live crash feed | Crash detail + LLM analysis |
+| --------------- | --------------------------- |
+| ![Dashboard live feed](docs/images/dashboard.png) | ![Crash analysis](docs/images/crash-detail.png) |
+
+Slack notification:
+
+![Slack alert](docs/images/slack-alert.png)
+-->
+
+To capture: run the end-to-end demo below, open the dashboard at `http://localhost:3000`,
+and save PNGs as `docs/images/dashboard.png`, `docs/images/crash-detail.png`, and
+`docs/images/slack-alert.png`. Then uncomment the block above.
+
+---
+
 ## Architecture
 
 ```
