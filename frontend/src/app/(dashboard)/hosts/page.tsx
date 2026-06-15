@@ -311,10 +311,22 @@ export default function HostsPage() {
   const handleTest = async (host: DockerHost) => {
     setTestingId(host.id);
     try {
-      await testHostConnection(host.id);
-      toast.success("Connection OK", {
-        description: `${host.name} responded to the test probe.`,
-      });
+      const result = await testHostConnection(host.id);
+      if (result.ok) {
+        const bits = [
+          result.docker_version && `Docker ${result.docker_version}`,
+          typeof result.running_containers === "number" &&
+            `${result.running_containers} running containers`,
+          result.latency_ms != null && `${result.latency_ms}ms`,
+        ].filter(Boolean);
+        toast.success("Connection OK", {
+          description: bits.length ? bits.join(" · ") : `${host.name} responded.`,
+        });
+      } else {
+        toast.error("Connection failed", {
+          description: result.message ?? "Probe returned no detail.",
+        });
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Test failed";
       toast.error("Connection failed", { description: msg });

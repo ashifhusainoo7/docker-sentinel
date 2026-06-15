@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +55,7 @@ async def get_crash(
 
 
 async def get_crash_stats(db: AsyncSession, tenant_id: uuid.UUID) -> CrashStats:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     day_ago = now - timedelta(days=1)
 
     total = await db.execute(
@@ -70,7 +70,7 @@ async def get_crash_stats(db: AsyncSession, tenant_id: uuid.UUID) -> CrashStats:
     )
     cache_hits = await db.execute(
         select(func.count()).select_from(CrashEvent).where(
-            CrashEvent.tenant_id == tenant_id, CrashEvent.cache_hit == True
+            CrashEvent.tenant_id == tenant_id, CrashEvent.cache_hit
         )
     )
 

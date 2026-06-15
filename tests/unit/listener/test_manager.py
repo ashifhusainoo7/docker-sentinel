@@ -43,18 +43,47 @@ async def test_sync_spawns_monitor_for_new_host(fake_session_with_hosts, host_id
     host = _fake_host(host_id, tenant_id)
     factory = fake_session_with_hosts([host])
 
-    with patch("src.listener.manager.DockerMonitor") as MockMonitor:
+    with patch("src.listener.manager.DockerMonitor") as mock_monitor:
         mock = MagicMock()
         mock.start = AsyncMock()
         mock.stop = AsyncMock()
-        MockMonitor.return_value = mock
+        mock_monitor.return_value = mock
 
         mgr = ListenerManager(db_session_factory=factory)
         await mgr.sync_listeners()
 
-        MockMonitor.assert_called_once()
+        mock_monitor.assert_called_once()
         mock.start.assert_awaited_once()
         assert host_id in mgr._listeners
+
+
+@pytest.mark.asyncio
+async def test_sync_isolates_failing_host_so_others_still_start(
+    fake_session_with_hosts, tenant_id
+):
+    """One unreachable host must not prevent other hosts from being monitored."""
+    bad_id = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    good_id = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    factory = fake_session_with_hosts(
+        [_fake_host(bad_id, tenant_id), _fake_host(good_id, tenant_id)]
+    )
+
+    bad = MagicMock()
+    bad.start = AsyncMock(side_effect=Exception("daemon unreachable"))
+    bad.stop = AsyncMock()
+    good = MagicMock()
+    good.start = AsyncMock()
+    good.stop = AsyncMock()
+
+    with patch("src.listener.manager.DockerMonitor", side_effect=[bad, good]):
+        mgr = ListenerManager(db_session_factory=factory)
+        await mgr.sync_listeners()  # must not raise despite the bad host
+
+    bad.start.assert_awaited_once()
+    good.start.assert_awaited_once()
+    # Bad host isn't registered (retried next sync); good host is monitored.
+    assert bad_id not in mgr._listeners
+    assert good_id in mgr._listeners
 
 
 @pytest.mark.asyncio
@@ -83,9 +112,9 @@ async def test_sync_leaves_existing_monitor_alone(fake_session_with_hosts, host_
     existing.stop = AsyncMock()
     mgr._listeners[host_id] = existing
 
-    with patch("src.listener.manager.DockerMonitor") as MockMonitor:
+    with patch("src.listener.manager.DockerMonitor") as mock_monitor:
         await mgr.sync_listeners()
-        MockMonitor.assert_not_called()
+        mock_monitor.assert_not_called()
         existing.stop.assert_not_awaited()
         existing.start.assert_not_awaited()
 
@@ -116,7 +145,9 @@ async def test_manager_start_runs_sync_in_background(fake_session_with_hosts):
 
 
 @pytest.mark.asyncio
-async def test_manager_stop_terminates_sync_task_and_stops_monitors(fake_session_with_hosts, host_id):
+async def test_manager_stop_terminates_sync_task_and_stops_monitors(
+    fake_session_with_hosts, host_id
+):
     factory = fake_session_with_hosts([])
     mgr = ListenerManager(db_session_factory=factory, sync_interval=0.05)
     mon = MagicMock()

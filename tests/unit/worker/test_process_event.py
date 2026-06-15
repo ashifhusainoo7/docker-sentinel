@@ -38,7 +38,9 @@ def mock_session_factory():
 
 
 @pytest.mark.asyncio
-async def test_process_event_inserts_crash_event_row(tenant_id, event_payload, mock_session_factory):
+async def test_process_event_inserts_crash_event_row(
+    tenant_id, event_payload, mock_session_factory
+):
     with patch("src.worker.main.crash_workflow") as wf:
         wf.ainvoke = AsyncMock()
         await _process_event(event_payload, tenant_id, mock_session_factory)
@@ -51,7 +53,9 @@ async def test_process_event_inserts_crash_event_row(tenant_id, event_payload, m
 
 
 @pytest.mark.asyncio
-async def test_process_event_invokes_langgraph_workflow(tenant_id, event_payload, mock_session_factory):
+async def test_process_event_invokes_langgraph_workflow(
+    tenant_id, event_payload, mock_session_factory
+):
     with patch("src.worker.main.crash_workflow") as wf:
         wf.ainvoke = AsyncMock()
         await _process_event(event_payload, tenant_id, mock_session_factory)
@@ -72,7 +76,9 @@ async def test_process_event_invokes_langgraph_workflow(tenant_id, event_payload
 
 
 @pytest.mark.asyncio
-async def test_process_event_swallows_not_implemented_error(tenant_id, event_payload, mock_session_factory, caplog):
+async def test_process_event_swallows_not_implemented_error(
+    tenant_id, event_payload, mock_session_factory, caplog
+):
     with patch("src.worker.main.crash_workflow") as wf:
         wf.ainvoke = AsyncMock(side_effect=NotImplementedError("phase 2"))
         # Should not raise; logged as debug/info rather than error.
@@ -80,7 +86,9 @@ async def test_process_event_swallows_not_implemented_error(tenant_id, event_pay
 
 
 @pytest.mark.asyncio
-async def test_process_event_swallows_other_exceptions(tenant_id, event_payload, mock_session_factory, caplog):
+async def test_process_event_swallows_other_exceptions(
+    tenant_id, event_payload, mock_session_factory, caplog
+):
     with patch("src.worker.main.crash_workflow") as wf:
         wf.ainvoke = AsyncMock(side_effect=RuntimeError("boom"))
         await _process_event(event_payload, tenant_id, mock_session_factory)

@@ -1,11 +1,9 @@
 import json
 import logging
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from src.api.deps import get_db
-from src.services import api_key_service, redis_stream
 
 router = APIRouter(tags=["websocket"])
 logger = logging.getLogger("sentinel.websocket")
@@ -18,8 +16,7 @@ async def agent_websocket(websocket: WebSocket, token: str = Query(...)):
     Agents authenticate with API key, then stream Docker events.
     Events are published to Redis for the worker to consume.
     """
-    db: AsyncSession
-    async with (await get_db().__anext__()) if False else _placeholder():
+    async with (await get_db().__anext__()) if False else _Placeholder():
         pass
 
     # Placeholder — full implementation will:
@@ -64,7 +61,7 @@ async def live_feed(websocket: WebSocket, token: str = Query(...)):
         logger.info("Live feed client disconnected")
 
 
-class _placeholder:
+class _Placeholder:
     """Placeholder context manager."""
     async def __aenter__(self): return None
     async def __aexit__(self, *args): pass

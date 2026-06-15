@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from src.api.routers.auth import router
 from src.services import auth_service
-from src.services.auth_cookies import ACCESS_COOKIE, REFRESH_COOKIE, REFRESH_PATH
+from src.services.auth_cookies import ACCESS_COOKIE, REFRESH_COOKIE
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ async def test_google_login_redirects_to_google(client):
         oauth_mod.google = MagicMock()
         oauth_mod.google.authorize_redirect = AsyncMock(return_value=fake_redirect)
 
-        response = await client.get("/api/v1/auth/google")
+        await client.get("/api/v1/auth/google")
 
     # The router returns whatever Authlib returns; we're asserting the call
     oauth_mod.google.authorize_redirect.assert_awaited_once()
@@ -86,7 +86,8 @@ async def test_google_callback_sets_cookies_and_redirects_to_app_url(
 
 @pytest.mark.asyncio
 async def test_google_callback_creates_user_on_first_login(client, fake_user):
-    token = {"userinfo": {"email": "new@test.com", "name": "New", "picture": None, "sub": "new-sub"}}
+    token = {"userinfo": {"email": "new@test.com", "name": "New", "picture": None,
+                          "sub": "new-sub"}}
     create_fn = AsyncMock(return_value=fake_user)
     mock_db = AsyncMock()
     mock_db.commit = AsyncMock()

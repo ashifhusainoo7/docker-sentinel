@@ -77,3 +77,48 @@ async def test_log_event_handles_none_analysis(initial_state):
     assert values["category"] is None
     assert values["suggestions"] == []
     assert values["restart_attempted"] is False
+
+
+def _session(execute_side_effect=None):
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=execute_side_effect)
+    session.commit = AsyncMock()
+    session.__aenter__.return_value = session
+    session.__aexit__.return_value = None
+    return session
+
+
+@pytest.mark.asyncio
+async def test_log_event_retries_then_succeeds(initial_state):
+    """A transient DB error on the first attempt must be retried, not orphan the row."""
+    state = _state_with_analysis(initial_state)
+    bad = _session(execute_side_effect=OSError("db connection reset"))
+    good = _session()
+    factory = MagicMock(side_effect=[bad, good])
+
+    with (
+        patch("src.orchestrator.nodes.async_session_factory", factory),
+        patch("src.orchestrator.nodes.asyncio.sleep", new=AsyncMock()),
+    ):
+        result = await log_event(state)
+
+    assert result == {}
+    assert factory.call_count == 2
+    good.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_log_event_gives_up_after_three_failures_without_raising(initial_state):
+    """Persisting must never crash the workflow — give up after 3 tries."""
+    state = _state_with_analysis(initial_state)
+    bad = _session(execute_side_effect=OSError("db down"))
+    factory = MagicMock(return_value=bad)
+
+    with (
+        patch("src.orchestrator.nodes.async_session_factory", factory),
+        patch("src.orchestrator.nodes.asyncio.sleep", new=AsyncMock()),
+    ):
+        result = await log_event(state)
+
+    assert result == {}  # swallowed, not raised
+    assert factory.call_count == 3

@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.services.auth_cookies import (
     ACCESS_COOKIE,
     REFRESH_COOKIE,

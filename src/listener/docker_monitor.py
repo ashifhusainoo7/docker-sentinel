@@ -3,7 +3,7 @@ import logging
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import docker
 import docker.errors
@@ -64,9 +64,9 @@ class DockerMonitor:
         event_type = event.get("Action", "")
         event_ts_raw = event.get("time")
         event_ts = (
-            datetime.fromtimestamp(event_ts_raw, tz=timezone.utc)
+            datetime.fromtimestamp(event_ts_raw, tz=UTC)
             if event_ts_raw
-            else datetime.now(tz=timezone.utc)
+            else datetime.now(tz=UTC)
         )
 
         if not should_monitor(
@@ -109,6 +109,17 @@ class DockerMonitor:
                 return container.logs(tail=200).decode("utf-8", errors="replace")
             except docker.errors.NotFound:
                 return None
+            except Exception as exc:
+                # A log-fetch failure (e.g. a stale async client after a daemon
+                # restart) must not drop the whole crash event — publish without
+                # logs rather than letting this propagate and lose the event.
+                logger.warning(
+                    "Failed to fetch logs for host=%s container=%s: %s",
+                    self.host_id,
+                    container_id,
+                    str(exc)[:200],
+                )
+                return None
 
         return await asyncio.to_thread(_get)
 
@@ -117,8 +128,11 @@ class DockerMonitor:
             return
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue(maxsize=1000)
-        self._async_client = docker.DockerClient(
-            base_url=self.host_url, tls=self.tls_config
+        # Building the client does a blocking version handshake (up to its
+        # timeout). Run it off the event loop so an unreachable host can't freeze
+        # the loop for every other tenant; a bounded timeout caps the stall.
+        self._async_client = await asyncio.to_thread(
+            docker.DockerClient, base_url=self.host_url, tls=self.tls_config, timeout=10
         )
         self._shutdown_event.clear()
         self._thread = threading.Thread(
@@ -168,9 +182,10 @@ class DockerMonitor:
                         break
                     if not self._loop or self._loop.is_closed():
                         break
-                    asyncio.run_coroutine_threadsafe(
-                        self._queue.put(event), self._loop
-                    )
+                    # Non-blocking handoff: a blocking queue.put() scheduled from
+                    # this thread would pile up un-awaited futures (and the thread
+                    # would never see back-pressure) once the queue fills.
+                    self._loop.call_soon_threadsafe(self._enqueue_nowait, event)
             except Exception as exc:
                 msg = str(exc)[:255]
                 logger.warning(
@@ -194,14 +209,40 @@ class DockerMonitor:
             except Exception:
                 logger.exception("Error processing crash event")
 
+    def _enqueue_nowait(self, event: dict) -> None:
+        """Runs on the event loop thread: enqueue without blocking; drop if full."""
+        if self._queue is None:
+            return
+        try:
+            self._queue.put_nowait(event)
+        except asyncio.QueueFull:
+            logger.warning(
+                "Event queue full for host %s; dropping crash event", self.host_id
+            )
+
     def _set_status(self, status: str, message: str | None) -> None:
         """Thread-safe status update: schedules coroutine on the main loop."""
+        previous = self._status
         self._status = status
         if self._loop is None or self._loop.is_closed():
             return
-        asyncio.run_coroutine_threadsafe(
+        # Avoid scheduling a DB write on every reconnect backoff iteration when
+        # the status is unchanged — during an outage those coroutines would pile
+        # up on the loop and hold connection-pool slots.
+        if status == previous == "reconnecting":
+            return
+        future = asyncio.run_coroutine_threadsafe(
             update_host_status(
                 self._db_session_factory, self.host_id, status, message
             ),
             self._loop,
         )
+        # Observe the result so a failed status write doesn't leak or warn.
+        future.add_done_callback(self._consume_future_exception)
+
+    @staticmethod
+    def _consume_future_exception(future) -> None:
+        try:
+            future.exception()
+        except Exception:
+            pass

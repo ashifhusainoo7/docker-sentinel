@@ -1,4 +1,3 @@
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -89,7 +88,7 @@ async def test_send_returns_false_on_smtp_error(agent, sample_event, sample_anal
 async def test_send_returns_false_on_timeout(agent, sample_event, sample_analysis):
     with patch(
         "src.agents.email_agent.aiosmtplib.send",
-        new=AsyncMock(side_effect=asyncio.TimeoutError("hang")),
+        new=AsyncMock(side_effect=TimeoutError("hang")),
     ):
         result = await agent.send(sample_event, sample_analysis, "dev@test.com")
     assert result is False

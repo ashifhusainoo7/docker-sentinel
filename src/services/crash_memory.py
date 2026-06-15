@@ -2,7 +2,7 @@ import asyncio
 import logging
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
@@ -119,7 +119,7 @@ class CrashMemory:
             payload = {
                 "tenant_id": tenant_id,
                 "analysis": analysis,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
             }
             if metadata:
                 # Drop reserved keys so metadata can never overwrite tenant

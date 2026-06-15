@@ -1,4 +1,3 @@
-import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import docker.errors
@@ -27,7 +26,9 @@ async def test_attempt_restart_success(initial_state, host_id):
     fake_client.containers.get.return_value = fake_container
 
     with patch("src.orchestrator.nodes.async_session_factory") as factory, \
-         patch("src.orchestrator.nodes.docker.DockerClient", return_value=fake_client) as client_ctor:
+         patch(
+             "src.orchestrator.nodes.docker.DockerClient", return_value=fake_client
+         ) as client_ctor:
         session = AsyncMock()
         session.get = AsyncMock(return_value=fake_host)
         session.__aenter__.return_value = session

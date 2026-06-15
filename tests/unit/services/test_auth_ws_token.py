@@ -1,7 +1,5 @@
 import uuid
 
-import pytest
-
 from src.services import auth_service
 
 

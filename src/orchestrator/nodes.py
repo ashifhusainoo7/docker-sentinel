@@ -170,26 +170,49 @@ async def log_event(state: CrashState) -> dict:
     crash_id = uuid.UUID(state["crash_event_id"])
     analysis = state.get("analysis") or {}
 
-    async with async_session_factory() as session:
-        await session.execute(
-            update(CrashEvent)
-            .where(CrashEvent.id == crash_id)
-            .values(
-                root_cause=analysis.get("root_cause"),
-                category=analysis.get("category"),
-                severity=analysis.get("severity"),
-                confidence=analysis.get("confidence"),
-                suggestions=analysis.get("suggestions") or [],
-                restart_attempted=state.get("restart_attempted", False),
-                restart_success=state.get("restart_success"),
-                cache_hit=state.get("cache_hit", False),
-                slack_sent=state.get("slack_sent", False),
-                email_sent=state.get("email_sent", False),
-                call_made=state.get("call_triggered", False),
-                resolved_at=func.now(),
+    values = dict(
+        root_cause=analysis.get("root_cause"),
+        category=analysis.get("category"),
+        severity=analysis.get("severity"),
+        confidence=analysis.get("confidence"),
+        suggestions=analysis.get("suggestions") or [],
+        restart_attempted=state.get("restart_attempted", False),
+        restart_success=state.get("restart_success"),
+        cache_hit=state.get("cache_hit", False),
+        slack_sent=state.get("slack_sent", False),
+        email_sent=state.get("email_sent", False),
+        call_made=state.get("call_triggered", False),
+        resolved_at=func.now(),
+    )
+
+    # This is the only write that persists the analysis + action results. A
+    # transient DB error here would otherwise orphan the row in 'pending' with
+    # the crash already analyzed and notified, so retry with backoff.
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with async_session_factory() as session:
+                await session.execute(
+                    update(CrashEvent).where(CrashEvent.id == crash_id).values(**values)
+                )
+                await session.commit()
+            return {}
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "log_event UPDATE failed (attempt %d/3) for crash=%s: %s",
+                attempt + 1,
+                crash_id,
+                exc,
             )
-        )
-        await session.commit()
+            if attempt < 2:
+                await asyncio.sleep(0.5 * 2**attempt)
+
+    logger.error(
+        "log_event permanently failed for crash=%s after 3 attempts: %s",
+        crash_id,
+        last_exc,
+    )
     return {}
 
 

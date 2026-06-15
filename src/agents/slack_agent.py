@@ -56,16 +56,25 @@ class SlackAgent:
                     "type": "header",
                     "text": {
                         "type": "plain_text",
-                        "text": f"{emoji} Container Crash: {crash_event.get('container_name', 'unknown')}",
+                        "text": (
+                            f"{emoji} Container Crash: "
+                            f"{crash_event.get('container_name', 'unknown')}"
+                        ),
                     },
                 },
                 {
                     "type": "section",
                     "fields": [
-                        {"type": "mrkdwn", "text": f"*Image:*\n{crash_event.get('image', 'unknown')}"},
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*Image:*\n{crash_event.get('image', 'unknown')}",
+                        },
                         {"type": "mrkdwn", "text": f"*Exit Code:*\n{crash_event.get('exit_code')}"},
                         {"type": "mrkdwn", "text": f"*Severity:*\n{severity}"},
-                        {"type": "mrkdwn", "text": f"*Category:*\n{analysis.get('category', 'unknown')}"},
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*Category:*\n{analysis.get('category', 'unknown')}",
+                        },
                     ],
                 },
                 {

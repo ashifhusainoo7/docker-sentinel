@@ -1,6 +1,5 @@
 from src.orchestrator.nodes import check_restart_result, should_restart
 
-
 # --- check_restart_result ---
 
 def test_check_restart_result_true_goes_to_log():
